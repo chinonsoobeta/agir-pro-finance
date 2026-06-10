@@ -54,9 +54,9 @@ function AuthPage() {
   }
 
   async function handleGoogle() {
-    const result = await lovable.auth.signInWithOAuth("google", { redirect_uri: window.location.origin });
-    if (result.error) return toast.error(typeof result.error === "string" ? result.error : (result.error as Error).message);
-    if (!("redirected" in result && result.redirected)) navigate({ to: "/dashboard" });
+    const result: any = await lovable.auth.signInWithOAuth("google", { redirect_uri: window.location.origin });
+    if (result?.error) return toast.error(typeof result.error === "string" ? result.error : result.error.message);
+    if (!result?.redirected) navigate({ to: "/dashboard" });
   }
 
   return (
