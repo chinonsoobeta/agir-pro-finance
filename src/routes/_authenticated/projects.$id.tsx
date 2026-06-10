@@ -48,7 +48,10 @@ function ProjectDetail() {
         <Tabs defaultValue="overview">
           <TabsList>
             <TabsTrigger value="overview">Overview</TabsTrigger>
-            <TabsTrigger value="financials">Financials</TabsTrigger>
+            <TabsTrigger value="assumptions">Assumptions</TabsTrigger>
+            <TabsTrigger value="underwriting">Underwriting</TabsTrigger>
+            <TabsTrigger value="ic">IC Decision</TabsTrigger>
+            <TabsTrigger value="audit">Audit</TabsTrigger>
             <TabsTrigger value="scenarios">Scenarios</TabsTrigger>
             <TabsTrigger value="documents">Documents</TabsTrigger>
             <TabsTrigger value="memo">Memo</TabsTrigger>
