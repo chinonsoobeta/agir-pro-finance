@@ -17,6 +17,8 @@ import { computeMetrics, fmtCompact, fmtCurrency, fmtPct } from "@/lib/finance";
 import { useState } from "react";
 import { toast } from "sonner";
 import jsPDF from "jspdf";
+import { AssumptionReviewCenter } from "@/components/assumption-review";
+import { UnderwritingPanel, ICPanel, AuditPanel } from "@/components/underwriting-panel";
 
 const projectQ = (id: string) => queryOptions({ queryKey: ["project", id], queryFn: () => getProject({ data: { id } }) });
 const scenariosQ = (id: string) => queryOptions({ queryKey: ["scenarios", id], queryFn: () => listScenarios({ data: { project_id: id } }) });
