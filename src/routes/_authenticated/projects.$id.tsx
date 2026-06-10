@@ -17,6 +17,8 @@ import { computeMetrics, fmtCompact, fmtCurrency, fmtPct } from "@/lib/finance";
 import { useState } from "react";
 import { toast } from "sonner";
 import jsPDF from "jspdf";
+import { AssumptionReviewCenter } from "@/components/assumption-review";
+import { UnderwritingPanel, ICPanel, AuditPanel } from "@/components/underwriting-panel";
 
 const projectQ = (id: string) => queryOptions({ queryKey: ["project", id], queryFn: () => getProject({ data: { id } }) });
 const scenariosQ = (id: string) => queryOptions({ queryKey: ["scenarios", id], queryFn: () => listScenarios({ data: { project_id: id } }) });
@@ -46,7 +48,10 @@ function ProjectDetail() {
         <Tabs defaultValue="overview">
           <TabsList>
             <TabsTrigger value="overview">Overview</TabsTrigger>
-            <TabsTrigger value="financials">Financials</TabsTrigger>
+            <TabsTrigger value="assumptions">Assumptions</TabsTrigger>
+            <TabsTrigger value="underwriting">Underwriting</TabsTrigger>
+            <TabsTrigger value="ic">IC Decision</TabsTrigger>
+            <TabsTrigger value="audit">Audit</TabsTrigger>
             <TabsTrigger value="scenarios">Scenarios</TabsTrigger>
             <TabsTrigger value="documents">Documents</TabsTrigger>
             <TabsTrigger value="memo">Memo</TabsTrigger>
@@ -69,29 +74,10 @@ function ProjectDetail() {
             </Card>
           </TabsContent>
 
-          <TabsContent value="financials" className="mt-4">
-            <Card className="p-5 space-y-3">
-              <SectionLabel>Pro Forma</SectionLabel>
-              <table className="data-grid w-full">
-                <tbody>
-                  <Row label="Acquisition Cost" value={fmtCurrency(Number(project.acquisition_cost))} />
-                  <Row label="Construction Cost" value={fmtCurrency(Number(project.construction_cost))} />
-                  <Row label="Total Project Cost" value={fmtCurrency(m.totalCost)} bold />
-                  <Row label="Projected Revenue" value={fmtCurrency(m.projectedRevenue)} />
-                  <Row label="Projected Profit" value={fmtCurrency(m.projectedProfit)} bold />
-                  <Row label="Debt Amount" value={fmtCurrency(Number(project.debt_amount))} />
-                  <Row label="Equity Amount" value={fmtCurrency(Number(project.equity_amount))} />
-                  <Row label="Interest Rate" value={fmtPct(Number(project.interest_rate))} />
-                  <Row label="Equity Requirement" value={fmtCurrency(m.equityRequirement)} />
-                  <Row label="Loan-to-Cost" value={fmtPct(m.ltc)} />
-                  <Row label="DSCR" value={m.dscr.toFixed(2) + "x"} />
-                  <Row label="IRR Estimate" value={fmtPct(m.irr)} />
-                  <Row label="Cash-on-Cash" value={fmtPct(m.coc)} />
-                </tbody>
-              </table>
-            </Card>
-          </TabsContent>
-
+          <TabsContent value="assumptions" className="mt-4"><AssumptionReviewCenter projectId={id} /></TabsContent>
+          <TabsContent value="underwriting" className="mt-4"><UnderwritingPanel projectId={id} /></TabsContent>
+          <TabsContent value="ic" className="mt-4"><ICPanel projectId={id} /></TabsContent>
+          <TabsContent value="audit" className="mt-4"><AuditPanel projectId={id} /></TabsContent>
           <TabsContent value="scenarios" className="mt-4"><ScenariosTab projectId={id} project={project} /></TabsContent>
           <TabsContent value="documents" className="mt-4"><DocumentsTab projectId={id} /></TabsContent>
           <TabsContent value="memo" className="mt-4"><MemoTab projectId={id} projectName={project.name} /></TabsContent>

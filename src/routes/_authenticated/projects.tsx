@@ -1,6 +1,7 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useSuspenseQuery, queryOptions, useMutation, useQueryClient } from "@tanstack/react-query";
 import { listProjects, createProject, deleteProject } from "@/lib/projects.functions";
+import { seedHarbourCentre } from "@/lib/demo.functions";
 import { useServerFn } from "@tanstack/react-start";
 import { PageHeader } from "@/components/app-shell";
 import { Card } from "@/components/ui/card";
@@ -11,7 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2, Sparkles } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { computeMetrics, fmtCompact, fmtPct } from "@/lib/finance";
@@ -37,8 +38,10 @@ function ProjectsPage() {
   const { data: projects } = useSuspenseQuery(projectsQ);
   const [open, setOpen] = useState(false);
   const qc = useQueryClient();
+  const navigate = useNavigate();
   const createFn = useServerFn(createProject);
   const delFn = useServerFn(deleteProject);
+  const seedFn = useServerFn(seedHarbourCentre);
 
   const del = useMutation({
     mutationFn: (id: string) => delFn({ data: { id } }),
@@ -46,14 +49,29 @@ function ProjectsPage() {
     onError: (e: Error) => toast.error(e.message),
   });
 
+  const seed = useMutation({
+    mutationFn: () => seedFn(),
+    onSuccess: ({ project_id }) => {
+      qc.invalidateQueries({ queryKey: ["projects"] });
+      toast.success("Harbour Centre seeded — opening project");
+      navigate({ to: "/projects/$id", params: { id: project_id } });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
   return (
     <>
       <PageHeader title="Projects" subtitle={`${projects.length} total`}
         actions={
-          <Dialog open={open} onOpenChange={setOpen}>
-            <DialogTrigger asChild><Button size="sm"><Plus className="size-4 mr-1" /> New project</Button></DialogTrigger>
-            <NewProjectDialog onClose={() => setOpen(false)} createFn={createFn} />
-          </Dialog>
+          <>
+            <Button size="sm" variant="outline" onClick={() => seed.mutate()} disabled={seed.isPending}>
+              <Sparkles className="size-4 mr-1" />{seed.isPending ? "Seeding…" : "Try Harbour Centre demo"}
+            </Button>
+            <Dialog open={open} onOpenChange={setOpen}>
+              <DialogTrigger asChild><Button size="sm"><Plus className="size-4 mr-1" /> New project</Button></DialogTrigger>
+              <NewProjectDialog onClose={() => setOpen(false)} createFn={createFn} />
+            </Dialog>
+          </>
         } />
       <div className="p-6">
         {projects.length === 0 ? (
