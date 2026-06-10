@@ -251,7 +251,7 @@ export const reviewAssumption = createServerFn({ method: "POST" })
     if (error) throw new Error(error.message);
     const by = await userName(context);
     const newVer = cur.current_version + 1;
-    const patch: Record<string, unknown> = { current_version: newVer };
+    const patch: any = { current_version: newVer };
     if (data.action === "approve") {
       patch.status = "approved";
       patch.approved_by = context.userId;
