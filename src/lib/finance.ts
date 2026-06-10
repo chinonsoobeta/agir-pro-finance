@@ -1,11 +1,14 @@
 export type ProjectInput = {
-  acquisition_cost: number;
-  construction_cost: number;
-  revenue_forecast: number;
-  debt_amount: number;
-  equity_amount: number;
-  interest_rate: number;
+  acquisition_cost?: number | string | null;
+  construction_cost?: number | string | null;
+  revenue_forecast?: number | string | null;
+  debt_amount?: number | string | null;
+  equity_amount?: number | string | null;
+  interest_rate?: number | string | null;
 };
+
+const n = (v: number | string | null | undefined) => Number(v ?? 0) || 0;
+
 
 export function computeMetrics(p: ProjectInput, scenario?: {
   revenue_change?: number; cost_change?: number; interest_rate_change?: number;
