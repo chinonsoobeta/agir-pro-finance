@@ -1,5 +1,5 @@
 import { Link, useRouter, useRouterState } from "@tanstack/react-router";
-import { LayoutDashboard, FolderKanban, GitBranchPlus, FileText, BarChart3, Bot, Settings, LogOut, Terminal } from "lucide-react";
+import { LayoutDashboard, FolderKanban, GitBranchPlus, FileText, BarChart3, Bot, Settings, LogOut, Terminal, ShieldCheck } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 const nav = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { to: "/projects", label: "Projects", icon: FolderKanban },
+  { to: "/assumptions", label: "Assumption Review", icon: ShieldCheck },
   { to: "/scenarios", label: "Scenarios", icon: GitBranchPlus },
   { to: "/documents", label: "Documents", icon: FileText },
   { to: "/reports", label: "Reports", icon: BarChart3 },
