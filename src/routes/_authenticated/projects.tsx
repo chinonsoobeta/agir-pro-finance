@@ -53,8 +53,8 @@ function ProjectsPage() {
     mutationFn: () => seedFn(),
     onSuccess: ({ project_id }) => {
       qc.invalidateQueries({ queryKey: ["projects"] });
-      toast.success("Harbour Centre seeded — opening assumption review");
-      navigate({ to: "/projects/$id", params: { id: project_id }, search: { tab: "assumptions" } as any });
+      toast.success("Harbour Centre seeded — opening project");
+      navigate({ to: "/projects/$id", params: { id: project_id } });
     },
     onError: (e: Error) => toast.error(e.message),
   });
