@@ -36,11 +36,7 @@ function Dashboard() {
   const totalValue = projects.reduce((a, p) => a + Number(p.revenue_forecast || 0), 0);
   const totalBudget = projects.reduce((a, p) => a + Number(p.acquisition_cost || 0) + Number(p.construction_cost || 0), 0);
   const totalRevenue = projects.reduce((a, p) => a + Number(p.revenue_forecast || 0), 0);
-  const irrs = projects.map((p) => computeMetrics({
-    acquisition_cost: +p.acquisition_cost, construction_cost: +p.construction_cost,
-    revenue_forecast: +p.revenue_forecast, debt_amount: +p.debt_amount,
-    equity_amount: +p.equity_amount, interest_rate: +p.interest_rate,
-  }).irr).filter((v) => isFinite(v));
+  const irrs = projects.map((p) => computeMetrics(p).irr).filter((v) => isFinite(v));
   const avgIRR = irrs.length ? irrs.reduce((a, b) => a + b, 0) / irrs.length : 0;
 
   const statusBreakdown = ["pipeline","underwriting","approved","active","completed","cancelled"].map((s) => ({

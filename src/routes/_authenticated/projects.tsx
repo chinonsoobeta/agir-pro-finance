@@ -75,11 +75,7 @@ function ProjectsPage() {
               </tr></thead>
               <tbody>
                 {projects.map((p) => {
-                  const m = computeMetrics({
-                    acquisition_cost: +p.acquisition_cost, construction_cost: +p.construction_cost,
-                    revenue_forecast: +p.revenue_forecast, debt_amount: +p.debt_amount,
-                    equity_amount: +p.equity_amount, interest_rate: +p.interest_rate,
-                  });
+                  const m = computeMetrics(p);
                   return (
                     <tr key={p.id} className="hover:bg-accent/30 transition-colors">
                       <td>
