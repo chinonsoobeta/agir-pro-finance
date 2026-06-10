@@ -38,8 +38,10 @@ function ProjectsPage() {
   const { data: projects } = useSuspenseQuery(projectsQ);
   const [open, setOpen] = useState(false);
   const qc = useQueryClient();
+  const navigate = useNavigate();
   const createFn = useServerFn(createProject);
   const delFn = useServerFn(deleteProject);
+  const seedFn = useServerFn(seedHarbourCentre);
 
   const del = useMutation({
     mutationFn: (id: string) => delFn({ data: { id } }),
@@ -47,14 +49,29 @@ function ProjectsPage() {
     onError: (e: Error) => toast.error(e.message),
   });
 
+  const seed = useMutation({
+    mutationFn: () => seedFn(),
+    onSuccess: ({ project_id }) => {
+      qc.invalidateQueries({ queryKey: ["projects"] });
+      toast.success("Harbour Centre seeded — opening assumption review");
+      navigate({ to: "/projects/$id", params: { id: project_id }, search: { tab: "assumptions" } as any });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
   return (
     <>
       <PageHeader title="Projects" subtitle={`${projects.length} total`}
         actions={
-          <Dialog open={open} onOpenChange={setOpen}>
-            <DialogTrigger asChild><Button size="sm"><Plus className="size-4 mr-1" /> New project</Button></DialogTrigger>
-            <NewProjectDialog onClose={() => setOpen(false)} createFn={createFn} />
-          </Dialog>
+          <>
+            <Button size="sm" variant="outline" onClick={() => seed.mutate()} disabled={seed.isPending}>
+              <Sparkles className="size-4 mr-1" />{seed.isPending ? "Seeding…" : "Try Harbour Centre demo"}
+            </Button>
+            <Dialog open={open} onOpenChange={setOpen}>
+              <DialogTrigger asChild><Button size="sm"><Plus className="size-4 mr-1" /> New project</Button></DialogTrigger>
+              <NewProjectDialog onClose={() => setOpen(false)} createFn={createFn} />
+            </Dialog>
+          </>
         } />
       <div className="p-6">
         {projects.length === 0 ? (
