@@ -49,6 +49,44 @@ export type Database = {
           },
         ]
       }
+      assumption_comments: {
+        Row: {
+          assumption_id: string
+          comment: string
+          created_at: string
+          id: string
+          owner_id: string
+          user_id: string
+          user_name: string | null
+        }
+        Insert: {
+          assumption_id: string
+          comment: string
+          created_at?: string
+          id?: string
+          owner_id: string
+          user_id: string
+          user_name?: string | null
+        }
+        Update: {
+          assumption_id?: string
+          comment?: string
+          created_at?: string
+          id?: string
+          owner_id?: string
+          user_id?: string
+          user_name?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "assumption_comments_assumption_id_fkey"
+            columns: ["assumption_id"]
+            isOneToOne: false
+            referencedRelation: "assumptions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       assumption_history: {
         Row: {
           created_at: string
@@ -80,6 +118,256 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "assumption_history_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      assumption_versions: {
+        Row: {
+          assumption_id: string
+          change_reason: string | null
+          changed_by: string
+          changed_by_name: string | null
+          confidence_band: Database["public"]["Enums"]["confidence_band"] | null
+          confidence_score: number | null
+          created_at: string
+          id: string
+          owner_id: string
+          source_document_id: string | null
+          source_text: string | null
+          status: Database["public"]["Enums"]["assumption_status"]
+          value_numeric: number | null
+          value_text: string | null
+          version_number: number
+        }
+        Insert: {
+          assumption_id: string
+          change_reason?: string | null
+          changed_by: string
+          changed_by_name?: string | null
+          confidence_band?:
+            | Database["public"]["Enums"]["confidence_band"]
+            | null
+          confidence_score?: number | null
+          created_at?: string
+          id?: string
+          owner_id: string
+          source_document_id?: string | null
+          source_text?: string | null
+          status: Database["public"]["Enums"]["assumption_status"]
+          value_numeric?: number | null
+          value_text?: string | null
+          version_number: number
+        }
+        Update: {
+          assumption_id?: string
+          change_reason?: string | null
+          changed_by?: string
+          changed_by_name?: string | null
+          confidence_band?:
+            | Database["public"]["Enums"]["confidence_band"]
+            | null
+          confidence_score?: number | null
+          created_at?: string
+          id?: string
+          owner_id?: string
+          source_document_id?: string | null
+          source_text?: string | null
+          status?: Database["public"]["Enums"]["assumption_status"]
+          value_numeric?: number | null
+          value_text?: string | null
+          version_number?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "assumption_versions_assumption_id_fkey"
+            columns: ["assumption_id"]
+            isOneToOne: false
+            referencedRelation: "assumptions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      assumptions: {
+        Row: {
+          ai_reasoning: string | null
+          approved_at: string | null
+          approved_by: string | null
+          category: string | null
+          confidence_band: Database["public"]["Enums"]["confidence_band"]
+          confidence_score: number
+          created_at: string
+          current_version: number
+          field_key: string
+          field_label: string
+          id: string
+          impact_amount: number | null
+          impact_rank: number | null
+          owner_id: string
+          project_id: string
+          source_document_id: string | null
+          source_location: string | null
+          source_text: string | null
+          status: Database["public"]["Enums"]["assumption_status"]
+          unit: string | null
+          updated_at: string
+          value_numeric: number | null
+          value_text: string | null
+        }
+        Insert: {
+          ai_reasoning?: string | null
+          approved_at?: string | null
+          approved_by?: string | null
+          category?: string | null
+          confidence_band?: Database["public"]["Enums"]["confidence_band"]
+          confidence_score?: number
+          created_at?: string
+          current_version?: number
+          field_key: string
+          field_label: string
+          id?: string
+          impact_amount?: number | null
+          impact_rank?: number | null
+          owner_id: string
+          project_id: string
+          source_document_id?: string | null
+          source_location?: string | null
+          source_text?: string | null
+          status?: Database["public"]["Enums"]["assumption_status"]
+          unit?: string | null
+          updated_at?: string
+          value_numeric?: number | null
+          value_text?: string | null
+        }
+        Update: {
+          ai_reasoning?: string | null
+          approved_at?: string | null
+          approved_by?: string | null
+          category?: string | null
+          confidence_band?: Database["public"]["Enums"]["confidence_band"]
+          confidence_score?: number
+          created_at?: string
+          current_version?: number
+          field_key?: string
+          field_label?: string
+          id?: string
+          impact_amount?: number | null
+          impact_rank?: number | null
+          owner_id?: string
+          project_id?: string
+          source_document_id?: string | null
+          source_location?: string | null
+          source_text?: string | null
+          status?: Database["public"]["Enums"]["assumption_status"]
+          unit?: string | null
+          updated_at?: string
+          value_numeric?: number | null
+          value_text?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "assumptions_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "assumptions_source_document_id_fkey"
+            columns: ["source_document_id"]
+            isOneToOne: false
+            referencedRelation: "documents"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      audit_logs: {
+        Row: {
+          action: string
+          created_at: string
+          entity_id: string | null
+          entity_type: string
+          id: string
+          owner_id: string
+          payload: Json | null
+          project_id: string | null
+          user_id: string
+          user_name: string | null
+        }
+        Insert: {
+          action: string
+          created_at?: string
+          entity_id?: string | null
+          entity_type: string
+          id?: string
+          owner_id: string
+          payload?: Json | null
+          project_id?: string | null
+          user_id: string
+          user_name?: string | null
+        }
+        Update: {
+          action?: string
+          created_at?: string
+          entity_id?: string | null
+          entity_type?: string
+          id?: string
+          owner_id?: string
+          payload?: Json | null
+          project_id?: string | null
+          user_id?: string
+          user_name?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "audit_logs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      decision_logs: {
+        Row: {
+          conditions: string | null
+          created_at: string
+          decision: Database["public"]["Enums"]["ic_decision"]
+          id: string
+          owner_id: string
+          project_id: string
+          rationale: string | null
+          user_id: string
+          user_name: string | null
+        }
+        Insert: {
+          conditions?: string | null
+          created_at?: string
+          decision: Database["public"]["Enums"]["ic_decision"]
+          id?: string
+          owner_id: string
+          project_id: string
+          rationale?: string | null
+          user_id: string
+          user_name?: string | null
+        }
+        Update: {
+          conditions?: string | null
+          created_at?: string
+          decision?: Database["public"]["Enums"]["ic_decision"]
+          id?: string
+          owner_id?: string
+          project_id?: string
+          rationale?: string | null
+          user_id?: string
+          user_name?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "decision_logs_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
             referencedRelation: "projects"
@@ -133,6 +421,56 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "documents_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      financial_outputs: {
+        Row: {
+          computed_at: string
+          formula_text: string | null
+          id: string
+          inputs: Json | null
+          metric_key: string
+          metric_label: string | null
+          owner_id: string
+          project_id: string
+          scenario_key: string
+          unit: string | null
+          value_numeric: number | null
+        }
+        Insert: {
+          computed_at?: string
+          formula_text?: string | null
+          id?: string
+          inputs?: Json | null
+          metric_key: string
+          metric_label?: string | null
+          owner_id: string
+          project_id: string
+          scenario_key?: string
+          unit?: string | null
+          value_numeric?: number | null
+        }
+        Update: {
+          computed_at?: string
+          formula_text?: string | null
+          id?: string
+          inputs?: Json | null
+          metric_key?: string
+          metric_label?: string | null
+          owner_id?: string
+          project_id?: string
+          scenario_key?: string
+          unit?: string | null
+          value_numeric?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "financial_outputs_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
             referencedRelation: "projects"
@@ -259,6 +597,57 @@ export type Database = {
         }
         Relationships: []
       }
+      risk_register: {
+        Row: {
+          created_at: string
+          description: string | null
+          id: string
+          owner_id: string
+          project_id: string
+          related_assumption_id: string | null
+          risk_type: string
+          severity: Database["public"]["Enums"]["risk_severity"]
+          title: string
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          owner_id: string
+          project_id: string
+          related_assumption_id?: string | null
+          risk_type: string
+          severity?: Database["public"]["Enums"]["risk_severity"]
+          title: string
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          owner_id?: string
+          project_id?: string
+          related_assumption_id?: string | null
+          risk_type?: string
+          severity?: Database["public"]["Enums"]["risk_severity"]
+          title?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "risk_register_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "risk_register_related_assumption_id_fkey"
+            columns: ["related_assumption_id"]
+            isOneToOne: false
+            referencedRelation: "assumptions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       scenarios: {
         Row: {
           cost_change: number | null
@@ -345,6 +734,15 @@ export type Database = {
     }
     Enums: {
       app_role: "admin" | "analyst" | "executive"
+      assumption_status:
+        | "pending"
+        | "approved"
+        | "modified"
+        | "rejected"
+        | "needs_review"
+        | "missing"
+      confidence_band: "high" | "medium" | "low" | "missing"
+      ic_decision: "approve" | "approve_with_conditions" | "reject"
       project_status:
         | "pipeline"
         | "underwriting"
@@ -361,6 +759,7 @@ export type Database = {
         | "retail"
         | "office"
         | "other"
+      risk_severity: "info" | "yellow" | "red" | "critical"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -489,6 +888,16 @@ export const Constants = {
   public: {
     Enums: {
       app_role: ["admin", "analyst", "executive"],
+      assumption_status: [
+        "pending",
+        "approved",
+        "modified",
+        "rejected",
+        "needs_review",
+        "missing",
+      ],
+      confidence_band: ["high", "medium", "low", "missing"],
+      ic_decision: ["approve", "approve_with_conditions", "reject"],
       project_status: [
         "pipeline",
         "underwriting",
@@ -507,6 +916,7 @@ export const Constants = {
         "office",
         "other",
       ],
+      risk_severity: ["info", "yellow", "red", "critical"],
     },
   },
 } as const
