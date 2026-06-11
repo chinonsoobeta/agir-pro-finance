@@ -85,8 +85,8 @@ function DocumentsPage() {
               <Select value={projectId} onValueChange={setProjectId}>
                 <SelectTrigger><SelectValue placeholder="Unassigned" /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">— Unassigned —</SelectItem>
-                  {projects.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
+                  <SelectItem value={UNASSIGNED}>— Unassigned —</SelectItem>
+                  {validProjects.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
