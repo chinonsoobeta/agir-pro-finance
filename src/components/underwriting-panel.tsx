@@ -229,27 +229,41 @@ export function ICPanel({ projectId }: { projectId: string }) {
 
 export function AuditPanel({ projectId }: { projectId: string }) {
   const { data: audit } = useSuspenseQuery(auditQ(projectId));
-  if (!audit.length) return <Card className="p-12 text-center text-sm text-muted-foreground">No audit events yet.</Card>;
+  const groups = [
+    { label: "Assumption Changes", rows: audit.filter((a: any) => a.entity_type === "assumption" || String(a.action).startsWith("assumption_")) },
+    { label: "Decision Changes", rows: audit.filter((a: any) => a.entity_type === "decision" || a.action === "ic_decision") },
+    { label: "User Activity", rows: audit.filter((a: any) => a.entity_type !== "assumption" && a.entity_type !== "decision") },
+    { label: "Version History", rows: audit.filter((a: any) => a.action === "extract_assumptions" || a.action === "recompute_outputs") },
+  ];
   return (
-    <Card className="overflow-hidden">
-      <table className="data-grid w-full">
-        <thead><tr className="bg-muted/10">
-          <th className="text-left">Time</th>
-          <th className="text-left">Action</th>
-          <th className="text-left">Entity</th>
-          <th className="text-left">Payload</th>
-        </tr></thead>
-        <tbody>
-          {audit.map((a: any) => (
-            <tr key={a.id} className="hover:bg-accent/20">
-              <td className="text-xs font-mono text-muted-foreground whitespace-nowrap">{new Date(a.created_at).toLocaleString()}</td>
-              <td className="font-medium">{a.action}</td>
-              <td className="text-xs text-muted-foreground">{a.entity_type}</td>
-              <td className="text-[10px] font-mono text-muted-foreground max-w-md truncate">{JSON.stringify(a.payload)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </Card>
+    <div className="space-y-4">
+      {groups.map((group) => (
+        <Card key={group.label} className="overflow-hidden">
+          <div className="px-4 py-2 border-b border-border bg-muted/20 text-[10px] uppercase tracking-widest text-muted-foreground font-semibold">{group.label}</div>
+          {group.rows.length === 0 ? (
+            <p className="p-6 text-sm text-muted-foreground">No {group.label.toLowerCase()} yet.</p>
+          ) : (
+            <table className="data-grid w-full">
+              <thead><tr className="bg-muted/10">
+                <th className="text-left">Time</th>
+                <th className="text-left">Action</th>
+                <th className="text-left">Entity</th>
+                <th className="text-left">Payload</th>
+              </tr></thead>
+              <tbody>
+                {group.rows.map((a: any) => (
+                  <tr key={a.id} className="hover:bg-accent/20">
+                    <td className="text-xs font-mono text-muted-foreground whitespace-nowrap">{new Date(a.created_at).toLocaleString()}</td>
+                    <td className="font-medium">{a.action}</td>
+                    <td className="text-xs text-muted-foreground">{a.entity_type}</td>
+                    <td className="text-[10px] font-mono text-muted-foreground max-w-md truncate">{JSON.stringify(a.payload)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </Card>
+      ))}
+    </div>
   );
 }
