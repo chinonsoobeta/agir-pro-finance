@@ -1,30 +1,20 @@
 import { createFileRoute, Link, useRouterState } from "@tanstack/react-router";
-import { useSuspenseQuery, queryOptions, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useServerFn } from "@tanstack/react-start";
+import { useSuspenseQuery, queryOptions } from "@tanstack/react-query";
 import { getProject } from "@/lib/projects.functions";
-import { listScenarios, createScenario, deleteScenario } from "@/lib/scenarios.functions";
 import { listDocuments } from "@/lib/documents.functions";
-import { generateMemo, listMemos } from "@/lib/memo.functions";
 import { listAssumptions, listFinancialOutputs } from "@/lib/assumptions.functions";
 import { PageHeader } from "@/components/app-shell";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { ArrowLeft, FileText, Sparkles, Trash2, Download } from "lucide-react";
-import { computeMetrics, fmtCompact, fmtCurrency, fmtPct } from "@/lib/finance";
+import { ArrowLeft, FileText } from "lucide-react";
+import { computeMetrics, fmtCompact, fmtPct } from "@/lib/finance";
 import { useState } from "react";
-import { toast } from "sonner";
-import jsPDF from "jspdf";
 import { AssumptionReviewCenter } from "@/components/assumption-review";
 import { UnderwritingPanel, ICPanel, AuditPanel } from "@/components/underwriting-panel";
 
 const projectQ = (id: string) => queryOptions({ queryKey: ["project", id], queryFn: () => getProject({ data: { id } }) });
-const scenariosQ = (id: string) => queryOptions({ queryKey: ["scenarios", id], queryFn: () => listScenarios({ data: { project_id: id } }) });
 const docsQ = (id: string) => queryOptions({ queryKey: ["docs", id], queryFn: () => listDocuments({ data: { project_id: id } }) });
-const memosQ = (id: string) => queryOptions({ queryKey: ["memos", id], queryFn: () => listMemos({ data: { project_id: id } }) });
 const assumptionsQ = (id: string) => queryOptions({ queryKey: ["assumptions", id], queryFn: () => listAssumptions({ data: { project_id: id } }) });
 const outputsQ = (id: string) => queryOptions({ queryKey: ["outputs", id], queryFn: () => listFinancialOutputs({ data: { project_id: id } }) });
 
