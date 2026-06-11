@@ -50,7 +50,7 @@ function DocumentsPage() {
       const { error } = await supabase.storage.from("documents").upload(path, file);
       if (error) throw error;
       await createFn({ data: {
-        project_id: projectId || null, name: file.name, file_type: file.type,
+        project_id: projectId && projectId !== UNASSIGNED ? projectId : null, name: file.name, file_type: file.type,
         category, storage_path: path, size_bytes: file.size,
       } });
       qc.invalidateQueries({ queryKey: ["documents", "all"] });
