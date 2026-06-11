@@ -35,7 +35,9 @@ function DocumentsPage() {
   const analyzeFn = useServerFn(analyzeDocument);
   const urlFn = useServerFn(getDocumentUrl);
   const fileRef = useRef<HTMLInputElement>(null);
-  const [projectId, setProjectId] = useState<string>("");
+  const UNASSIGNED = "unassigned";
+  const [projectId, setProjectId] = useState<string>(UNASSIGNED);
+  const validProjects = projects.filter((p) => p?.id && String(p.id).trim() !== "");
   const [category, setCategory] = useState<string>("Other");
   const [uploading, setUploading] = useState(false);
 
