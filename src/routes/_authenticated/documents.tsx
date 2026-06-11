@@ -35,7 +35,9 @@ function DocumentsPage() {
   const analyzeFn = useServerFn(analyzeDocument);
   const urlFn = useServerFn(getDocumentUrl);
   const fileRef = useRef<HTMLInputElement>(null);
-  const [projectId, setProjectId] = useState<string>("");
+  const UNASSIGNED = "unassigned";
+  const [projectId, setProjectId] = useState<string>(UNASSIGNED);
+  const validProjects = projects.filter((p) => p?.id && String(p.id).trim() !== "");
   const [category, setCategory] = useState<string>("Other");
   const [uploading, setUploading] = useState(false);
 
@@ -48,7 +50,7 @@ function DocumentsPage() {
       const { error } = await supabase.storage.from("documents").upload(path, file);
       if (error) throw error;
       await createFn({ data: {
-        project_id: projectId || null, name: file.name, file_type: file.type,
+        project_id: projectId && projectId !== UNASSIGNED ? projectId : null, name: file.name, file_type: file.type,
         category, storage_path: path, size_bytes: file.size,
       } });
       qc.invalidateQueries({ queryKey: ["documents", "all"] });
@@ -83,8 +85,8 @@ function DocumentsPage() {
               <Select value={projectId} onValueChange={setProjectId}>
                 <SelectTrigger><SelectValue placeholder="Unassigned" /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">— Unassigned —</SelectItem>
-                  {projects.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
+                  <SelectItem value={UNASSIGNED}>— Unassigned —</SelectItem>
+                  {validProjects.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
