@@ -4,12 +4,11 @@
 import { useState } from "react";
 import { queryOptions, useSuspenseQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { listFinancialOutputs, listRisks, listDecisions, listAudit, recordDecision } from "@/lib/assumptions.functions";
+import { listFinancialOutputs, listRisks, listDecisions, listAudit, recordDecision, recomputeOutputs } from "@/lib/assumptions.functions";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { AlertTriangle, ShieldAlert, Info, Calculator } from "lucide-react";
 import { toast } from "sonner";
 
@@ -41,6 +40,17 @@ function fmtValue(v: number, unit: string) {
 export function UnderwritingPanel({ projectId }: { projectId: string }) {
   const { data: outputs } = useSuspenseQuery(outputsQ(projectId));
   const { data: risks } = useSuspenseQuery(risksQ(projectId));
+  const qc = useQueryClient();
+  const recomputeFn = useServerFn(recomputeOutputs);
+  const recompute = useMutation({
+    mutationFn: () => recomputeFn({ data: { project_id: projectId } }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["outputs", projectId] });
+      qc.invalidateQueries({ queryKey: ["risks", projectId] });
+      toast.success("Underwriting generated");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
 
   const byScenario = outputs.reduce<Record<string, any[]>>((acc, o) => {
     (acc[o.scenario_key] ||= []).push(o); return acc;
@@ -48,34 +58,40 @@ export function UnderwritingPanel({ projectId }: { projectId: string }) {
   const base = byScenario.base ?? [];
   const metricKeys = base.map((m) => m.metric_key);
   const scenarioKeys = Object.keys(byScenario).filter((k) => k !== "base");
-
-  if (!outputs.length) {
-    return (
-      <Card className="p-12 text-center text-sm text-muted-foreground">
-        No financial outputs yet. Approve assumptions and run <strong>Recompute model</strong> in the Assumptions tab.
-      </Card>
-    );
-  }
+  const metric = (key: string) => base.find((b) => b.metric_key === key);
+  const riskScore = risks.length ? Math.min(100, risks.length * 20) : 0;
 
   return (
     <div className="space-y-4">
+      <Card className="p-5">
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={() => recompute.mutate()} disabled={recompute.isPending}>Generate Base Case</Button>
+          <Button variant="outline" onClick={() => recompute.mutate()} disabled={recompute.isPending}>Generate Stress Test</Button>
+          <Button variant="outline" onClick={() => recompute.mutate()} disabled={recompute.isPending}>Run Full Underwriting</Button>
+        </div>
+      </Card>
+
       {/* Headline metrics */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        {["exit_value","irr","equity_multiple","dscr"].map((k) => {
-          const m = base.find((b) => b.metric_key === k);
-          if (!m) return null;
-          return (
-            <Card key={k} className="p-4">
-              <div className="text-[10px] uppercase tracking-widest text-muted-foreground">{m.metric_label}</div>
-              <div className="num text-2xl mt-1 text-primary">{fmtValue(Number(m.value_numeric), m.unit)}</div>
-              <div className="text-[10px] text-muted-foreground mt-1 font-mono">{m.formula_text}</div>
-            </Card>
-          );
-        })}
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+        <UnderwritingMetric label="Project Value" row={metric("exit_value")} />
+        <UnderwritingMetric label="IRR" row={metric("irr")} />
+        <UnderwritingMetric label="DSCR" row={metric("dscr")} />
+        <UnderwritingMetric label="Equity Multiple" row={metric("equity_multiple")} />
+        <Card className="p-4">
+          <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Risk Score</div>
+          <div className="num text-2xl mt-1 text-primary">{outputs.length ? riskScore : "—"}</div>
+          <div className="text-[10px] text-muted-foreground mt-1 font-mono">Automated risk flags × 20</div>
+        </Card>
       </div>
 
+      {!outputs.length && (
+        <Card className="p-12 text-center text-sm text-muted-foreground">
+          No financial outputs yet. Approve or modify assumptions, then run underwriting.
+        </Card>
+      )}
+
       {/* Full metric table with scenarios */}
-      <Card className="overflow-hidden">
+      {outputs.length > 0 && <Card className="overflow-hidden">
         <div className="px-4 py-2 border-b border-border bg-muted/20 text-[10px] uppercase tracking-widest text-muted-foreground font-semibold">
           Pro Forma — Base & Stress
         </div>
@@ -105,7 +121,7 @@ export function UnderwritingPanel({ projectId }: { projectId: string }) {
             </tbody>
           </table>
         </div>
-      </Card>
+      </Card>}
 
       {/* Risk register */}
       <Card className="p-5">
@@ -136,6 +152,16 @@ export function UnderwritingPanel({ projectId }: { projectId: string }) {
   );
 }
 
+function UnderwritingMetric({ label, row }: { label: string; row?: any }) {
+  return (
+    <Card className="p-4">
+      <div className="text-[10px] uppercase tracking-widest text-muted-foreground">{label}</div>
+      <div className="num text-2xl mt-1 text-primary">{row ? fmtValue(Number(row.value_numeric), row.unit) : "—"}</div>
+      <div className="text-[10px] text-muted-foreground mt-1 font-mono">{row?.formula_text ?? "Pending underwriting run"}</div>
+    </Card>
+  );
+}
+
 export function ICPanel({ projectId }: { projectId: string }) {
   const { data: decisions } = useSuspenseQuery(decisionsQ(projectId));
   const qc = useQueryClient();
@@ -159,15 +185,12 @@ export function ICPanel({ projectId }: { projectId: string }) {
     <div className="space-y-4">
       <Card className="p-5 space-y-3">
         <div className="text-[10px] uppercase tracking-widest text-muted-foreground font-semibold">New IC decision</div>
-        <Select value={decision} onValueChange={(v) => setDecision(v as any)}>
-          <SelectTrigger><SelectValue /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="approve">Approve</SelectItem>
-            <SelectItem value="approve_with_conditions">Approve with Conditions</SelectItem>
-            <SelectItem value="reject">Reject</SelectItem>
-          </SelectContent>
-        </Select>
-        <Textarea rows={3} placeholder="Rationale (cite approved assumptions, IRR/EM, DSCR, market guidance)" value={rationale} onChange={(e) => setRationale(e.target.value)} />
+        <div className="flex flex-wrap gap-2">
+          <Button variant={decision === "approve" ? "default" : "outline"} onClick={() => setDecision("approve")}>Approve</Button>
+          <Button variant={decision === "approve_with_conditions" ? "default" : "outline"} onClick={() => setDecision("approve_with_conditions")}>Approve with Conditions</Button>
+          <Button variant={decision === "reject" ? "default" : "outline"} onClick={() => setDecision("reject")}>Reject</Button>
+        </div>
+        <Textarea rows={3} placeholder="Comment / rationale (cite approved assumptions, IRR/EM, DSCR, market guidance)" value={rationale} onChange={(e) => setRationale(e.target.value)} />
         {decision === "approve_with_conditions" && (
           <Textarea rows={3} placeholder="Conditions (e.g. cap hard cost re-bid ≤ +5%, confirm rate ≤ 6.5%, OpEx ratio ≤ 38%)" value={conditions} onChange={(e) => setConditions(e.target.value)} />
         )}
