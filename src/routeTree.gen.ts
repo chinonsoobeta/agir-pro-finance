@@ -22,6 +22,7 @@ import { Route as AuthenticatedDocumentsRouteImport } from './routes/_authentica
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
 import { Route as AuthenticatedCopilotRouteImport } from './routes/_authenticated/copilot'
 import { Route as AuthenticatedAssumptionsRouteImport } from './routes/_authenticated/assumptions'
+import { Route as AuthenticatedProjectsIndexRouteImport } from './routes/_authenticated/projects.index'
 import { Route as AuthenticatedProjectsIdRouteImport } from './routes/_authenticated/projects.$id'
 
 const ResetPasswordRoute = ResetPasswordRouteImport.update({
@@ -89,6 +90,12 @@ const AuthenticatedAssumptionsRoute =
     path: '/assumptions',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedProjectsIndexRoute =
+  AuthenticatedProjectsIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => AuthenticatedProjectsRoute,
+  } as any)
 const AuthenticatedProjectsIdRoute = AuthenticatedProjectsIdRouteImport.update({
   id: '/$id',
   path: '/$id',
@@ -109,6 +116,7 @@ export interface FileRoutesByFullPath {
   '/settings': typeof AuthenticatedSettingsRoute
   '/api/chat': typeof ApiChatRoute
   '/projects/$id': typeof AuthenticatedProjectsIdRoute
+  '/projects/': typeof AuthenticatedProjectsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -118,12 +126,12 @@ export interface FileRoutesByTo {
   '/copilot': typeof AuthenticatedCopilotRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/documents': typeof AuthenticatedDocumentsRoute
-  '/projects': typeof AuthenticatedProjectsRouteWithChildren
   '/reports': typeof AuthenticatedReportsRoute
   '/scenarios': typeof AuthenticatedScenariosRoute
   '/settings': typeof AuthenticatedSettingsRoute
   '/api/chat': typeof ApiChatRoute
   '/projects/$id': typeof AuthenticatedProjectsIdRoute
+  '/projects': typeof AuthenticatedProjectsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -141,6 +149,7 @@ export interface FileRoutesById {
   '/_authenticated/settings': typeof AuthenticatedSettingsRoute
   '/api/chat': typeof ApiChatRoute
   '/_authenticated/projects/$id': typeof AuthenticatedProjectsIdRoute
+  '/_authenticated/projects/': typeof AuthenticatedProjectsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -158,6 +167,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/api/chat'
     | '/projects/$id'
+    | '/projects/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -167,12 +177,12 @@ export interface FileRouteTypes {
     | '/copilot'
     | '/dashboard'
     | '/documents'
-    | '/projects'
     | '/reports'
     | '/scenarios'
     | '/settings'
     | '/api/chat'
     | '/projects/$id'
+    | '/projects'
   id:
     | '__root__'
     | '/'
@@ -189,6 +199,7 @@ export interface FileRouteTypes {
     | '/_authenticated/settings'
     | '/api/chat'
     | '/_authenticated/projects/$id'
+    | '/_authenticated/projects/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -292,6 +303,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAssumptionsRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/projects/': {
+      id: '/_authenticated/projects/'
+      path: '/'
+      fullPath: '/projects/'
+      preLoaderRoute: typeof AuthenticatedProjectsIndexRouteImport
+      parentRoute: typeof AuthenticatedProjectsRoute
+    }
     '/_authenticated/projects/$id': {
       id: '/_authenticated/projects/$id'
       path: '/$id'
@@ -304,10 +322,12 @@ declare module '@tanstack/react-router' {
 
 interface AuthenticatedProjectsRouteChildren {
   AuthenticatedProjectsIdRoute: typeof AuthenticatedProjectsIdRoute
+  AuthenticatedProjectsIndexRoute: typeof AuthenticatedProjectsIndexRoute
 }
 
 const AuthenticatedProjectsRouteChildren: AuthenticatedProjectsRouteChildren = {
   AuthenticatedProjectsIdRoute: AuthenticatedProjectsIdRoute,
+  AuthenticatedProjectsIndexRoute: AuthenticatedProjectsIndexRoute,
 }
 
 const AuthenticatedProjectsRouteWithChildren =
