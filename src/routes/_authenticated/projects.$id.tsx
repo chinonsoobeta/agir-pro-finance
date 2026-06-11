@@ -144,84 +144,8 @@ function Metric({ label, value, accent }: { label: string; value: string; accent
     </Card>
   );
 }
-function Row({ label, value, bold }: { label: string; value: string; bold?: boolean }) {
-  return <tr className={bold ? "font-semibold" : ""}><td>{label}</td><td className="text-right num">{value}</td></tr>;
-}
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return <div className="text-[10px] uppercase tracking-widest text-muted-foreground font-semibold">{children}</div>;
-}
-
-function ScenariosTab({ projectId, project }: { projectId: string; project: any }) {
-  const { data: scenarios = [] } = useSuspenseQuery(scenariosQ(projectId));
-  const qc = useQueryClient();
-  const createFn = useServerFn(createScenario);
-  const delFn = useServerFn(deleteScenario);
-  const [form, setForm] = useState({ name: "", revenue_change: 0, cost_change: 0, interest_rate_change: 0 });
-  const create = useMutation({
-    mutationFn: (d: any) => createFn({ data: { ...d, project_id: projectId } }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["scenarios", projectId] }); toast.success("Scenario added"); setForm({ name: "", revenue_change: 0, cost_change: 0, interest_rate_change: 0 }); },
-    onError: (e: Error) => toast.error(e.message),
-  });
-  const del = useMutation({
-    mutationFn: (id: string) => delFn({ data: { id } }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["scenarios", projectId] }),
-  });
-  const base = computeMetrics(project);
-  return (
-    <div className="space-y-4">
-      <Card className="p-5">
-        <SectionLabel>New scenario</SectionLabel>
-        <form className="grid grid-cols-2 md:grid-cols-5 gap-3 mt-3 items-end" onSubmit={(e) => { e.preventDefault(); create.mutate(form); }}>
-          <div><Label>Name</Label><Input required value={form.name} onChange={(e) => setForm({...form, name: e.target.value})} /></div>
-          <div><Label>Revenue Δ %</Label><Input type="number" value={form.revenue_change} onChange={(e) => setForm({...form, revenue_change: Number(e.target.value)})} /></div>
-          <div><Label>Cost Δ %</Label><Input type="number" value={form.cost_change} onChange={(e) => setForm({...form, cost_change: Number(e.target.value)})} /></div>
-          <div><Label>Rate Δ pts</Label><Input type="number" step="0.1" value={form.interest_rate_change} onChange={(e) => setForm({...form, interest_rate_change: Number(e.target.value)})} /></div>
-          <Button type="submit" disabled={create.isPending}>Add</Button>
-        </form>
-      </Card>
-      <Card className="overflow-hidden">
-        <table className="data-grid w-full">
-          <thead><tr className="bg-muted/30">
-            <th className="text-left">Scenario</th>
-            <th className="text-right">Rev Δ</th>
-            <th className="text-right">Cost Δ</th>
-            <th className="text-right">Rate Δ</th>
-            <th className="text-right">Revenue</th>
-            <th className="text-right">Profit</th>
-            <th className="text-right">Margin</th>
-            <th className="text-right">IRR</th>
-            <th></th>
-          </tr></thead>
-          <tbody>
-            <tr className="bg-primary/5 font-semibold">
-              <td>Base Case</td><td className="text-right num">—</td><td className="text-right num">—</td><td className="text-right num">—</td>
-              <td className="text-right num">{fmtCompact(base.projectedRevenue)}</td>
-              <td className="text-right num">{fmtCompact(base.projectedProfit)}</td>
-              <td className="text-right num">{fmtPct(base.profitMargin)}</td>
-              <td className="text-right num text-primary">{fmtPct(base.irr)}</td>
-              <td></td>
-            </tr>
-            {scenarios.map((s) => {
-              const ms = computeMetrics(project, { revenue_change: Number(s.revenue_change), cost_change: Number(s.cost_change), interest_rate_change: Number(s.interest_rate_change) });
-              return (
-                <tr key={s.id} className="hover:bg-accent/30">
-                  <td className="font-medium">{s.name}</td>
-                  <td className="text-right num">{Number(s.revenue_change).toFixed(1)}%</td>
-                  <td className="text-right num">{Number(s.cost_change).toFixed(1)}%</td>
-                  <td className="text-right num">{Number(s.interest_rate_change).toFixed(2)}</td>
-                  <td className="text-right num">{fmtCompact(ms.projectedRevenue)}</td>
-                  <td className={`text-right num ${ms.projectedProfit >= 0 ? "text-success" : "text-destructive"}`}>{fmtCompact(ms.projectedProfit)}</td>
-                  <td className="text-right num">{fmtPct(ms.profitMargin)}</td>
-                  <td className="text-right num text-primary">{fmtPct(ms.irr)}</td>
-                  <td><Button variant="ghost" size="icon" className="size-7" onClick={() => del.mutate(s.id)}><Trash2 className="size-3.5" /></Button></td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </Card>
-    </div>
-  );
 }
 
 function DocumentsTab({ projectId }: { projectId: string }) {
