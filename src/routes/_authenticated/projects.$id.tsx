@@ -46,7 +46,7 @@ function ProjectDetail() {
         } />
       <div className="p-6">
         <Tabs defaultValue="overview">
-          <TabsList>
+          <TabsList className="flex flex-wrap h-auto w-full justify-start gap-1">
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="assumptions">Assumptions</TabsTrigger>
             <TabsTrigger value="underwriting">Underwriting</TabsTrigger>
