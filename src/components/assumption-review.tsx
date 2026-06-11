@@ -51,6 +51,16 @@ export function AssumptionReviewCenter({ projectId }: { projectId: string }) {
   const [sourceOf, setSourceOf] = useState<any | null>(null);
   const [editOf, setEditOf] = useState<any | null>(null);
   const [historyOf, setHistoryOf] = useState<any | null>(null);
+  const confidenceCounts = assumptions.reduce(
+    (acc, a) => {
+      const band = a.confidence_band === "high" || a.confidence_band === "medium" || a.confidence_band === "low" || a.confidence_band === "missing"
+        ? a.confidence_band
+        : "missing";
+      acc[band] += 1;
+      return acc;
+    },
+    { high: 0, medium: 0, low: 0, missing: 0 },
+  );
 
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ["assumptions", projectId] });
@@ -105,12 +115,19 @@ export function AssumptionReviewCenter({ projectId }: { projectId: string }) {
           </div>
           <div className="flex flex-col gap-2">
             <Button size="sm" onClick={() => extract.mutate()} disabled={extract.isPending}>
-              <Sparkles className="size-4 mr-1" />{extract.isPending ? "Extracting…" : assumptions.length ? "Re-extract" : "Extract assumptions"}
+              <Sparkles className="size-4 mr-1" />{extract.isPending ? "Extracting…" : "Run Extraction"}
             </Button>
             <Button size="sm" variant="outline" onClick={() => recompute.mutate()} disabled={recompute.isPending}>
               <RefreshCw className="size-4 mr-1" />{recompute.isPending ? "Computing…" : "Recompute model"}
             </Button>
           </div>
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mt-4 text-sm">
+          <Field label="Total Assumptions">{assumptions.length}</Field>
+          <Field label="High Confidence">{confidenceCounts.high}</Field>
+          <Field label="Medium Confidence">{confidenceCounts.medium}</Field>
+          <Field label="Low Confidence">{confidenceCounts.low}</Field>
+          <Field label="Missing">{confidenceCounts.missing}</Field>
         </div>
         {readiness.missing_required.length > 0 && (
           <div className="mt-4 flex items-start gap-2 text-xs text-chart-5 bg-chart-5/5 border border-chart-5/20 rounded p-3">
@@ -125,7 +142,7 @@ export function AssumptionReviewCenter({ projectId }: { projectId: string }) {
 
       {assumptions.length === 0 ? (
         <Card className="p-12 text-center text-sm text-muted-foreground">
-          No assumptions yet. Upload documents to this project, then click <strong>Extract assumptions</strong>.
+          No assumptions yet. Upload documents to this project, then click <strong>Run Extraction</strong>.
         </Card>
       ) : (
         Object.entries(grouped).map(([cat, rows]) => (
