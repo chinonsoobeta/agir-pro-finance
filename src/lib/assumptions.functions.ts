@@ -4,7 +4,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { z } from "zod";
-import { ASSUMPTION_DEFS, ASSUMPTION_BY_KEY, ASSUMPTION_KEYS, bandFor } from "./assumption-taxonomy";
+import { ASSUMPTION_DEFS, ASSUMPTION_BY_KEY, ASSUMPTION_KEYS, REQUIRED_KEYS, resolveAlias, bandFor } from "./assumption-taxonomy";
 
 // ---------- Read APIs ----------
 
@@ -112,16 +112,28 @@ async function recordVersion(ctx: any, a: any, changeReason: string, by: string)
   });
 }
 
-// ---------- Extraction ----------
+// ---------- Extraction (3-stage pipeline) ----------
+//
+// Stage 1 — Document Parsing: regex sweep of every uploaded document
+//   pulls currency values, percentages, dates, unit counts, square
+//   footage, and ratios. Output is a typed candidate list with the
+//   surrounding context and the phrase to the LEFT of the match
+//   (the natural label).
+//
+// Stage 2 — Assumption Classification: the AI receives the candidate
+//   list (NOT the raw document) and must label each candidate with one
+//   of our canonical field_keys or "ignore". This constrains the AI to
+//   real values lifted from the documents and removes hallucinations.
+//
+// Stage 3 — Assumption Mapping: candidates classified by the AI are
+//   merged with alias-based fallbacks (resolveAlias on label_hint).
+//   Multiple distinct values for the same key become a conflict.
 
-const ExtractionSchema = z.object({
+const ClassificationSchema = z.object({
+  candidate_index: z.number().int(),
   field_key: z.string(),
-  value_numeric: z.number().nullable().optional(),
-  value_text: z.string().nullable().optional(),
-  source_doc_name: z.string().nullable().optional(),
-  source_text: z.string().nullable().optional(),
   confidence_score: z.number().min(0).max(100),
-  ai_reasoning: z.string(),
+  reasoning: z.string().optional(),
 });
 
 export const extractAssumptions = createServerFn({ method: "POST" })
@@ -131,105 +143,210 @@ export const extractAssumptions = createServerFn({ method: "POST" })
     const key = process.env.LOVABLE_API_KEY;
     if (!key) throw new Error("Missing LOVABLE_API_KEY");
 
-    // Load all project documents
     const { data: docs, error: dErr } = await context.supabase
       .from("documents").select("*").eq("project_id", data.project_id);
     if (dErr) throw new Error(dErr.message);
     if (!docs?.length) throw new Error("Upload documents to this project before extracting assumptions.");
 
-    // Parse each doc to text
+    // ===== Stage 1 — Document Parsing =====
     const { extractFileText } = await import("./document-text.server");
-    const corpus: { name: string; category: string | null; text: string }[] = [];
+    const { extractCandidates } = await import("./assumption-candidates.server");
+    type Cand = Awaited<ReturnType<typeof extractCandidates>>[number];
+    const allCandidates: Cand[] = [];
+    const docByName = new Map(docs.map((d) => [d.name, d]));
     for (const d of docs) {
       try {
         const dl = await context.supabase.storage.from("documents").download(d.storage_path);
         if (dl.error || !dl.data) continue;
         const buf = await dl.data.arrayBuffer();
         const text = await extractFileText(d.name, d.file_type, buf);
-        corpus.push({ name: d.name, category: d.category, text: text.slice(0, 20000) });
+        const cands = extractCandidates(d.name, text.slice(0, 40000));
+        allCandidates.push(...cands);
       } catch { /* skip unreadable */ }
     }
-    if (!corpus.length) throw new Error("Could not read any uploaded document.");
+    if (!allCandidates.length) {
+      throw new Error("No extractable values found in uploaded documents.");
+    }
 
-    // Build extraction prompt
+    // ===== Stage 2 — AI Classification =====
     const taxonomyText = ASSUMPTION_DEFS.map(
-      (d) => `- ${d.key} (${d.label}, ${d.unit}${d.numeric ? ", numeric" : ", text"}${d.required ? ", REQUIRED" : ""})`
+      (d) => `- ${d.key} (${d.label}, unit ${d.unit}${d.required ? ", REQUIRED" : ""}) aliases: ${d.aliases.slice(0, 6).join(" / ")}`
     ).join("\n");
-    const docsText = corpus.map((c, i) => `=== DOC ${i + 1}: ${c.name} (${c.category ?? "uncategorized"}) ===\n${c.text}`).join("\n\n");
+    const cap = Math.min(allCandidates.length, 220);
+    const candidateList = allCandidates.slice(0, cap).map((c, i) =>
+      `${i}. [${c.kind}] value=${c.value_text} ctx="${c.context.slice(0, 220)}" hint="${c.label_hint.slice(0, 80)}" doc="${c.doc_name}"`
+    ).join("\n");
 
     const { createLovableAiGatewayProvider } = await import("./ai-gateway.server");
     const { generateText } = await import("ai");
     const gateway = createLovableAiGatewayProvider(key);
-    const { text } = await generateText({
-      model: gateway("google/gemini-3-flash-preview"),
-      system: `You are an institutional real estate underwriter. Extract ONLY values explicitly supported by the documents. Never invent. If a field is not mentioned, OMIT it. Always cite source_doc_name and the verbatim source_text snippet.`,
-      prompt: `Project assumption taxonomy:\n${taxonomyText}\n\nDocuments:\n${docsText}\n\nReturn a single JSON array (no prose, no markdown fences). Each element: {"field_key":"<one of the taxonomy keys>","value_numeric":<number or null>,"value_text":<string or null>,"source_doc_name":"<doc name>","source_text":"<<= 200 chars of the source>","confidence_score":<0-100>,"ai_reasoning":"<one sentence>"}. Only include fields you can support from the documents.`,
-    });
-
-    // Parse JSON
-    let parsed: unknown;
+    let classifications: z.infer<typeof ClassificationSchema>[] = [];
     try {
+      const { text } = await generateText({
+        model: gateway("google/gemini-3-flash-preview"),
+        system: `You are an institutional real estate underwriter. Classify pre-extracted numeric candidates from project documents into canonical assumption keys. Use ONLY the candidate context to decide; never invent values. If a candidate clearly does not match any canonical assumption, use field_key="ignore".`,
+        prompt: `Canonical assumption taxonomy:\n${taxonomyText}\n\nCandidates (index. [kind] value ctx hint doc):\n${candidateList}\n\nReturn a single JSON array (no prose, no markdown fences). One entry per candidate you classify. Schema: {"candidate_index":<int>,"field_key":"<taxonomy key or ignore>","confidence_score":<0-100>,"reasoning":"<short>"}. Skip candidates you cannot confidently classify.`,
+      });
       const m = text.match(/\[[\s\S]*\]/);
-      parsed = m ? JSON.parse(m[0]) : [];
-    } catch { parsed = []; }
-    const items = z.array(ExtractionSchema).safeParse(parsed);
-    const extracted = items.success ? items.data.filter((e) => ASSUMPTION_KEYS.includes(e.field_key)) : [];
+      const parsed = m ? JSON.parse(m[0]) : [];
+      const safe = z.array(ClassificationSchema).safeParse(parsed);
+      if (safe.success) classifications = safe.data.filter((c) => c.field_key === "ignore" || ASSUMPTION_KEYS.includes(c.field_key));
+    } catch {
+      classifications = [];
+    }
 
-    const docByName = new Map(docs.map((d) => [d.name, d]));
-    const by = await userName(context);
+    // ===== Stage 3 — Assumption Mapping (AI + alias fallback) =====
+    type Mapped = {
+      field_key: string; value_numeric: number | null; value_text: string | null;
+      confidence_score: number; source_doc_name: string; source_text: string;
+      reasoning: string; via: "ai" | "alias";
+    };
+    const mapped: Mapped[] = [];
 
-    // Build map: existing assumptions
+    for (const cls of classifications) {
+      if (cls.field_key === "ignore") continue;
+      const cand = allCandidates[cls.candidate_index];
+      if (!cand) continue;
+      const def = ASSUMPTION_BY_KEY[cls.field_key];
+      if (!def) continue;
+      mapped.push({
+        field_key: def.key,
+        value_numeric: def.numeric ? cand.value_numeric : null,
+        value_text: def.numeric ? null : cand.value_text,
+        confidence_score: Math.round(cls.confidence_score),
+        source_doc_name: cand.doc_name,
+        source_text: cand.context,
+        reasoning: cls.reasoning || "AI-classified candidate",
+        via: "ai",
+      });
+    }
+
+    // Alias fallback — for any candidate the AI ignored, check if the
+    // label hint matches a canonical alias. Adds inferred values.
+    const aiCandidateIndices = new Set(classifications.filter((c) => c.field_key !== "ignore").map((c) => c.candidate_index));
+    let inferredCount = 0;
+    for (let i = 0; i < allCandidates.length; i++) {
+      if (aiCandidateIndices.has(i)) continue;
+      const cand = allCandidates[i];
+      const fk = resolveAlias(cand.label_hint);
+      if (!fk) continue;
+      const def = ASSUMPTION_BY_KEY[fk];
+      if (!def || !def.numeric || cand.value_numeric == null) continue;
+      // Unit sanity check
+      if (def.unit === "%" && cand.kind !== "percent") continue;
+      if (def.unit === "$" && cand.kind !== "currency") continue;
+      if (def.unit === "SF" && cand.kind !== "sf") continue;
+      mapped.push({
+        field_key: def.key,
+        value_numeric: cand.value_numeric,
+        value_text: null,
+        confidence_score: 55,
+        source_doc_name: cand.doc_name,
+        source_text: cand.context,
+        reasoning: `Alias-matched "${cand.label_hint.slice(-40)}" → ${def.label}`,
+        via: "alias",
+      });
+      inferredCount++;
+    }
+
+    // Group by field_key and detect conflicts (multiple distinct numeric values)
+    const grouped = new Map<string, Mapped[]>();
+    for (const m of mapped) {
+      const arr = grouped.get(m.field_key) ?? [];
+      arr.push(m);
+      grouped.set(m.field_key, arr);
+    }
+
+    const conflictKeys: string[] = [];
+    const foundKeys: string[] = [];
+    const auditEntries: { field_key: string; status: string; chosen?: number | string | null; alternates?: (number | string | null)[]; source_doc?: string }[] = [];
+
     const { data: existing } = await context.supabase
       .from("assumptions").select("*").eq("project_id", data.project_id);
     const existingByKey = new Map((existing ?? []).map((a) => [a.field_key, a]));
-    const seenKeys = new Set<string>();
+    const by = await userName(context);
 
-    for (const item of extracted) {
-      const def = ASSUMPTION_BY_KEY[item.field_key];
-      seenKeys.add(item.field_key);
-      const srcDoc = item.source_doc_name ? docByName.get(item.source_doc_name) : null;
-      const band = bandFor(item.confidence_score);
-      const prev = existingByKey.get(item.field_key);
+    for (const [fk, arr] of grouped.entries()) {
+      const def = ASSUMPTION_BY_KEY[fk];
+      arr.sort((a, b) => b.confidence_score - a.confidence_score);
+      const winner = arr[0];
+      const distinct = Array.from(new Set(arr.map((a) =>
+        a.value_numeric != null ? Math.round(a.value_numeric * 1000) / 1000 : a.value_text
+      )));
+      const isConflict = distinct.length > 1;
+      if (isConflict) conflictKeys.push(fk);
+      else foundKeys.push(fk);
+
+      const srcDoc = docByName.get(winner.source_doc_name);
+      const status: "extracted" | "conflicting" = isConflict ? "conflicting" : "extracted";
       const payload = {
         project_id: data.project_id, owner_id: context.userId,
         field_key: def.key, field_label: def.label, category: def.category, unit: def.unit,
-        value_numeric: def.numeric ? item.value_numeric ?? null : null,
-        value_text: def.numeric ? null : item.value_text ?? null,
-        status: "pending" as const, confidence_score: Math.round(item.confidence_score),
-        confidence_band: band,
+        value_numeric: winner.value_numeric,
+        value_text: winner.value_text,
+        status,
+        confidence_score: winner.confidence_score,
+        confidence_band: bandFor(winner.confidence_score),
         source_document_id: srcDoc?.id ?? null,
         source_location: srcDoc?.name ?? null,
-        source_text: item.source_text ?? null,
-        ai_reasoning: item.ai_reasoning,
+        source_text: winner.source_text,
+        ai_reasoning: isConflict
+          ? `Conflicting values across documents: ${distinct.join(" vs ")}. Winner via ${winner.via}: ${winner.reasoning}`
+          : `${winner.via === "alias" ? "Alias-mapped" : "AI-classified"}: ${winner.reasoning}`,
       };
+
+      const prev = existingByKey.get(fk);
       if (prev) {
-        const newVer = prev.current_version + 1;
         const { data: upd } = await context.supabase.from("assumptions").update({
-          ...payload, current_version: newVer,
+          ...payload, current_version: prev.current_version + 1,
         }).eq("id", prev.id).select().single();
-        if (upd) await recordVersion(context, upd, "AI re-extraction", "AI Extraction");
+        if (upd) await recordVersion(context, upd, `Re-extracted via 3-stage pipeline (${status})`, "Extraction Pipeline");
       } else {
         const { data: ins } = await context.supabase.from("assumptions").insert(payload).select().single();
-        if (ins) await recordVersion(context, ins, "Initial AI extraction", "AI Extraction");
+        if (ins) await recordVersion(context, ins, `Initial extraction (${status})`, "Extraction Pipeline");
       }
+
+      auditEntries.push({
+        field_key: fk, status,
+        chosen: winner.value_numeric ?? winner.value_text,
+        alternates: isConflict ? distinct : undefined,
+        source_doc: winner.source_doc_name,
+      });
     }
 
-    // Insert missing-status placeholders for required fields the AI didn't find
+    // Missing placeholders for every taxonomy key not found
+    const missingKeys: string[] = [];
     for (const def of ASSUMPTION_DEFS) {
-      if (seenKeys.has(def.key) || existingByKey.has(def.key)) continue;
+      if (grouped.has(def.key) || existingByKey.has(def.key)) continue;
+      missingKeys.push(def.key);
       const { data: ins } = await context.supabase.from("assumptions").insert({
         project_id: data.project_id, owner_id: context.userId,
         field_key: def.key, field_label: def.label, category: def.category, unit: def.unit,
         status: "missing", confidence_score: 0, confidence_band: "missing",
-        ai_reasoning: "Not mentioned in any uploaded document.",
+        ai_reasoning: "Not found by Stage 1–3 extraction. Provide manually or upload more docs.",
       }).select().single();
-      if (ins) await recordVersion(context, ins, "Created as missing", "AI Extraction");
+      if (ins) await recordVersion(context, ins, "Created as missing", "Extraction Pipeline");
+      auditEntries.push({ field_key: def.key, status: "missing" });
     }
 
-    await auditLog(context, data.project_id, "project", data.project_id, "extract_assumptions",
-      { extracted: extracted.length, total: ASSUMPTION_DEFS.length });
+    const missingRequired = REQUIRED_KEYS.filter((k) => missingKeys.includes(k)
+      || existingByKey.get(k)?.status === "missing");
 
-    return { extracted: extracted.length, total: ASSUMPTION_DEFS.length };
+    const report = {
+      stage1_candidates: allCandidates.length,
+      stage2_classified: classifications.filter((c) => c.field_key !== "ignore").length,
+      stage3_inferred_via_alias: inferredCount,
+      found: foundKeys.length,
+      conflicting: conflictKeys.length,
+      missing: missingKeys.length,
+      missing_required: missingRequired.map((k) => ASSUMPTION_BY_KEY[k]?.label ?? k),
+      conflicts: conflictKeys.map((k) => ASSUMPTION_BY_KEY[k]?.label ?? k),
+      can_underwrite: missingRequired.length === 0,
+      entries: auditEntries,
+    };
+
+    await auditLog(context, data.project_id, "project", data.project_id, "extract_assumptions", report);
+    return report;
   });
 
 // ---------- Approval workflow ----------

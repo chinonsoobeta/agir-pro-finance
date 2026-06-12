@@ -741,6 +741,8 @@ export type Database = {
         | "rejected"
         | "needs_review"
         | "missing"
+        | "extracted"
+        | "conflicting"
       confidence_band: "high" | "medium" | "low" | "missing"
       ic_decision: "approve" | "approve_with_conditions" | "reject"
       project_status:
@@ -895,6 +897,8 @@ export const Constants = {
         "rejected",
         "needs_review",
         "missing",
+        "extracted",
+        "conflicting",
       ],
       confidence_band: ["high", "medium", "low", "missing"],
       ic_decision: ["approve", "approve_with_conditions", "reject"],
