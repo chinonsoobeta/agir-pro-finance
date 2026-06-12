@@ -25,6 +25,8 @@ const STATUS_STYLES: Record<string, string> = {
   needs_review: "bg-chart-2/20 text-chart-2 border-chart-2/30",
   rejected: "bg-destructive/20 text-destructive border-destructive/30",
   missing: "bg-muted text-muted-foreground border-border",
+  extracted: "bg-chart-1/20 text-chart-1 border-chart-1/30",
+  conflicting: "bg-destructive/20 text-destructive border-destructive/30",
 };
 const BAND_STYLES: Record<string, string> = {
   high: "text-success", medium: "text-chart-5", low: "text-destructive", missing: "text-muted-foreground",
@@ -144,6 +146,8 @@ export function AssumptionReviewCenter({ projectId }: { projectId: string }) {
           </div>
         )}
       </Card>
+
+      {report && <ExtractionReportCard report={report} onClose={() => setReport(null)} />}
 
       {assumptions.length === 0 ? (
         <Card className="p-12 text-center text-sm text-muted-foreground">
