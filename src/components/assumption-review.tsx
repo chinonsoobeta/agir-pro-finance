@@ -303,6 +303,42 @@ function VersionsList({ assumptionId }: { assumptionId: string }) {
   );
 }
 
+function ExtractionReportCard({ report, onClose }: { report: any; onClose: () => void }) {
+  return (
+    <Card className="p-5 border-primary/40">
+      <div className="flex items-start justify-between">
+        <div>
+          <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Extraction Audit Report · 3-stage pipeline</div>
+          <div className="text-sm mt-1">
+            Stage 1 parsed <strong className="font-mono">{report.stage1_candidates}</strong> candidates ·
+            Stage 2 classified <strong className="font-mono">{report.stage2_classified}</strong> ·
+            Stage 3 inferred <strong className="font-mono">{report.stage3_inferred_via_alias}</strong> via alias
+          </div>
+        </div>
+        <Button variant="ghost" size="sm" onClick={onClose}>Dismiss</Button>
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-3 text-sm">
+        <Field label="Found">{report.found}</Field>
+        <Field label="Conflicting">{report.conflicting}</Field>
+        <Field label="Missing">{report.missing}</Field>
+        <Field label="Underwriting ready">{report.can_underwrite ? "Yes — all required present" : "No — required fields missing"}</Field>
+      </div>
+      {report.conflicts?.length > 0 && (
+        <div className="mt-3 text-xs">
+          <span className="font-semibold text-destructive uppercase tracking-widest">Conflicts:</span>{" "}
+          <span className="text-muted-foreground">{report.conflicts.join(" · ")}</span>
+        </div>
+      )}
+      {report.missing_required?.length > 0 && (
+        <div className="mt-2 text-xs">
+          <span className="font-semibold text-chart-5 uppercase tracking-widest">Missing required:</span>{" "}
+          <span className="text-muted-foreground">{report.missing_required.join(" · ")}</span>
+        </div>
+      )}
+    </Card>
+  );
+}
+
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
