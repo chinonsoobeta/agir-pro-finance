@@ -16,8 +16,8 @@ export const listDocuments = createServerFn({ method: "GET" })
 const CreateDocSchema = z.object({
   project_id: z.string().uuid().optional().nullable(),
   name: z.string().min(1).max(255),
-  file_type: z.string().max(50).optional().nullable(),
-  category: z.string().max(50).optional().nullable(),
+  file_type: z.string().max(255).optional().nullable(),
+  category: z.string().max(255).optional().nullable(),
   storage_path: z.string().min(1),
   size_bytes: z.number().int().min(0).optional(),
 });
