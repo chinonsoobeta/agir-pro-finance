@@ -51,6 +51,7 @@ export function AssumptionReviewCenter({ projectId }: { projectId: string }) {
   const [sourceOf, setSourceOf] = useState<any | null>(null);
   const [editOf, setEditOf] = useState<any | null>(null);
   const [historyOf, setHistoryOf] = useState<any | null>(null);
+  const [report, setReport] = useState<any | null>(null);
   const confidenceCounts = assumptions.reduce(
     (acc, a) => {
       const band = a.confidence_band === "high" || a.confidence_band === "medium" || a.confidence_band === "low" || a.confidence_band === "missing"
@@ -71,7 +72,11 @@ export function AssumptionReviewCenter({ projectId }: { projectId: string }) {
 
   const extract = useMutation({
     mutationFn: () => extractFn({ data: { project_id: projectId } }),
-    onSuccess: (r) => { invalidate(); toast.success(`Extracted ${r.extracted}/${r.total} assumptions`); },
+    onSuccess: (r) => {
+      invalidate();
+      setReport(r);
+      toast.success(`Pipeline complete — ${r.found} found · ${r.conflicting} conflicting · ${r.missing} missing`);
+    },
     onError: (e: Error) => toast.error(e.message),
   });
   const recompute = useMutation({
