@@ -398,103 +398,201 @@ export const reviewAssumption = createServerFn({ method: "POST" })
     return upd;
   });
 
-// ---------- Financial engine ----------
+// ---------- Deterministic financial engine (no fabrication) ----------
+//
+// Strict-mode rules:
+//   • Every metric declares the assumption keys it requires.
+//   • If any required input is missing, the metric is emitted with
+//     value=null and status="blocked". We NEVER substitute placeholder
+//     values, industry averages, or AI guesses.
+//   • Underwriting itself is gated by REQUIRED_KEYS — if any required
+//     assumption is missing OR still conflicting, recomputeOutputs
+//     throws a structured "UNDERWRITING BLOCKED" error and writes no
+//     financial_outputs rows.
+//   • Scenarios may only perturb assumptions that already exist in the
+//     approved set; missing keys are left untouched (no fabrication).
 
 type ApprovedMap = Record<string, number | null>;
 
-function num(m: ApprovedMap, key: string, fallback = 0) {
+function n(m: ApprovedMap, key: string): number | null {
   const v = m[key];
-  return typeof v === "number" && !isNaN(v) ? v : fallback;
+  return typeof v === "number" && !isNaN(v) ? v : null;
+}
+
+const NUM = (...xs: Array<number | null>): number[] | null => {
+  const out: number[] = [];
+  for (const x of xs) { if (x == null) return null; out.push(x); }
+  return out;
+};
+
+type MetricSpec = {
+  key: string; label: string; unit: string; formula: string;
+  required: string[];
+  compute: (m: ApprovedMap, d: Record<string, number | null>) => number | null;
+};
+
+const METRIC_SPECS: MetricSpec[] = [
+  {
+    key: "total_project_cost", label: "Total Project Cost", unit: "$",
+    formula: "Land + Hard + Soft + Financing + Contingency",
+    required: ["land_cost", "hard_costs", "soft_costs"],
+    compute: (m) => {
+      const xs = NUM(n(m, "land_cost"), n(m, "hard_costs"), n(m, "soft_costs"));
+      if (!xs) return null;
+      return xs[0] + xs[1] + xs[2] + (n(m, "financing_costs") ?? 0) + (n(m, "contingency") ?? 0);
+    },
+  },
+  {
+    key: "gpr", label: "Gross Potential Rent (Yr 1)", unit: "$",
+    formula: "Σ(component units × rent × periods)",
+    required: [],
+    compute: (m) => {
+      const parts: number[] = [];
+      const ru = n(m, "residential_units"), rr = n(m, "residential_rent_monthly");
+      if (ru != null && rr != null) parts.push(ru * rr * 12);
+      const rs = n(m, "retail_sf"), rp = n(m, "retail_rent_psf");
+      if (rs != null && rp != null) parts.push(rs * rp);
+      const os = n(m, "office_sf"), op = n(m, "office_rent_psf");
+      if (os != null && op != null) parts.push(os * op);
+      return parts.length ? parts.reduce((a, b) => a + b, 0) : null;
+    },
+  },
+  {
+    key: "noi", label: "Stabilized NOI", unit: "$",
+    formula: "GPR × Occupancy × (1 − OpEx ratio)",
+    required: ["stabilized_occupancy", "opex_ratio"],
+    compute: (_m, d) => {
+      const xs = NUM(d.gpr, d.occupancy, d.opex_ratio);
+      if (!xs) return null;
+      return xs[0] * xs[1] * (1 - xs[2]);
+    },
+  },
+  {
+    key: "exit_value", label: "Exit Value (Project Value)", unit: "$",
+    formula: "NOI ÷ Exit Cap Rate",
+    required: ["exit_cap_rate"],
+    compute: (_m, d) => {
+      const xs = NUM(d.noi, d.exit_cap);
+      if (!xs || xs[1] <= 0) return null;
+      return xs[0] / xs[1];
+    },
+  },
+  {
+    key: "ltc", label: "Loan-to-Cost", unit: "%",
+    formula: "Debt ÷ Total Cost",
+    required: ["debt_amount"],
+    compute: (_m, d) => {
+      const xs = NUM(d.debt, d.total_cost);
+      if (!xs || xs[1] <= 0) return null;
+      return (xs[0] / xs[1]) * 100;
+    },
+  },
+  {
+    key: "dscr", label: "Stabilized DSCR", unit: "x",
+    formula: "NOI ÷ Annual Debt Service",
+    required: ["debt_amount", "interest_rate"],
+    compute: (_m, d) => {
+      const xs = NUM(d.noi, d.ads);
+      if (!xs || xs[1] <= 0) return null;
+      return xs[0] / xs[1];
+    },
+  },
+  {
+    key: "equity_required", label: "Equity Required", unit: "$",
+    formula: "Equity Amount (or Total Cost − Debt)",
+    required: ["equity_amount"],
+    compute: (m, d) => {
+      const eq = n(m, "equity_amount");
+      if (eq != null) return eq;
+      const xs = NUM(d.total_cost, d.debt);
+      if (!xs) return null;
+      return Math.max(xs[0] - xs[1], 0);
+    },
+  },
+  {
+    key: "yield_on_cost", label: "Yield on Cost", unit: "%",
+    formula: "NOI ÷ Total Cost",
+    required: [],
+    compute: (_m, d) => {
+      const xs = NUM(d.noi, d.total_cost);
+      if (!xs || xs[1] <= 0) return null;
+      return (xs[0] / xs[1]) * 100;
+    },
+  },
+  {
+    key: "profit", label: "Profit", unit: "$",
+    formula: "Exit Value − Total Cost",
+    required: [],
+    compute: (_m, d) => {
+      const xs = NUM(d.exit_value, d.total_cost);
+      return xs ? xs[0] - xs[1] : null;
+    },
+  },
+  {
+    key: "margin", label: "Profit Margin", unit: "%",
+    formula: "Profit ÷ Exit Value",
+    required: [],
+    compute: (_m, d) => {
+      const xs = NUM(d.profit, d.exit_value);
+      if (!xs || xs[1] <= 0) return null;
+      return (xs[0] / xs[1]) * 100;
+    },
+  },
+];
+
+function annualDebtService(m: ApprovedMap): number | null {
+  const debt = n(m, "debt_amount");
+  const rate = n(m, "interest_rate");
+  if (debt == null || rate == null) return null;
+  const amort = n(m, "amortization_years") ?? 30;
+  const r = rate / 100 / 12;
+  const N = amort * 12;
+  if (r <= 0 || N <= 0) return debt / amort;
+  return ((debt * r) / (1 - Math.pow(1 + r, -N))) * 12;
 }
 
 function buildModel(m: ApprovedMap) {
-  const land = num(m, "land_cost");
-  const hard = num(m, "hard_costs");
-  const soft = num(m, "soft_costs");
-  const fin = num(m, "financing_costs");
-  const cont = num(m, "contingency");
-  const totalCost = land + hard + soft + fin + cont;
+  const occRaw = n(m, "stabilized_occupancy");
+  const opexRaw = n(m, "opex_ratio");
+  const exitRaw = n(m, "exit_cap_rate");
 
-  // Revenue (annualized GPR)
-  const resUnits = num(m, "residential_units");
-  const resRent = num(m, "residential_rent_monthly");
-  const retailSf = num(m, "retail_sf");
-  const retailRent = num(m, "retail_rent_psf");
-  const officeSf = num(m, "office_sf");
-  const officeRent = num(m, "office_rent_psf");
-  const gpr = resUnits * resRent * 12 + retailSf * retailRent + officeSf * officeRent;
+  const d: Record<string, number | null> = {
+    occupancy: occRaw == null ? null : occRaw / 100,
+    opex_ratio: opexRaw == null ? null : opexRaw / 100,
+    exit_cap: exitRaw == null ? null : exitRaw / 100,
+    debt: n(m, "debt_amount"),
+    ads: annualDebtService(m),
+  };
 
-  const occ = (num(m, "stabilized_occupancy") || 95) / 100;
-  const opexRatio = (num(m, "opex_ratio") || 35) / 100;
-  const egi = gpr * occ;
-  const opex = egi * opexRatio;
-  const noi = egi - opex;
+  const metrics: Array<{
+    key: string; label: string; unit: string; formula: string;
+    value: number | null; status: "ok" | "blocked";
+    missing_inputs: string[]; inputs: Record<string, number | null>;
+  }> = [];
 
-  const exitCap = (num(m, "exit_cap_rate") || 5) / 100;
-  const exitValue = exitCap > 0 ? noi / exitCap : 0;
-
-  const debt = num(m, "debt_amount");
-  const equity = num(m, "equity_amount") || Math.max(totalCost - debt, 0);
-  const rate = (num(m, "interest_rate") || 0) / 100;
-  const amort = num(m, "amortization_years", 30);
-  const monthlyRate = rate / 12;
-  const n = amort * 12;
-  const monthlyPmt = monthlyRate > 0 && n > 0
-    ? (debt * monthlyRate) / (1 - Math.pow(1 + monthlyRate, -n))
-    : 0;
-  const ads = monthlyPmt * 12;
-  const dscr = ads > 0 ? noi / ads : 0;
-
-  const hold = num(m, "hold_period_years", 5);
-  const dispoCost = (num(m, "disposition_cost_pct") || 1) / 100;
-  const netExit = exitValue * (1 - dispoCost);
-  const netSaleProceedsToEquity = netExit - debt;
-  const totalEquityReturn = netSaleProceedsToEquity + (noi - ads) * hold;
-  const em = equity > 0 ? totalEquityReturn / equity : 0;
-  const irr = equity > 0 && hold > 0
-    ? (Math.pow(Math.max(em, 0.0001), 1 / hold) - 1) * 100
-    : 0;
-
-  const ltc = totalCost > 0 ? (debt / totalCost) * 100 : 0;
-  const yieldOnCost = totalCost > 0 ? (noi / totalCost) * 100 : 0;
-  const devSpread = yieldOnCost - exitCap * 100;
-  const profit = exitValue - totalCost;
-  const margin = exitValue > 0 ? (profit / exitValue) * 100 : 0;
+  for (const spec of METRIC_SPECS) {
+    const missing = spec.required.filter((k) => n(m, k) == null);
+    let value: number | null = null;
+    if (!missing.length) { try { value = spec.compute(m, d); } catch { value = null; } }
+    if (spec.key === "total_project_cost") d.total_cost = value;
+    if (spec.key === "gpr") d.gpr = value;
+    if (spec.key === "noi") d.noi = value;
+    if (spec.key === "exit_value") d.exit_value = value;
+    if (spec.key === "profit") d.profit = value;
+    const inputs: Record<string, number | null> = {};
+    for (const k of spec.required) inputs[k] = n(m, k);
+    metrics.push({
+      key: spec.key, label: spec.label, unit: spec.unit, formula: spec.formula,
+      value, status: value == null ? "blocked" : "ok",
+      missing_inputs: value == null ? (missing.length ? missing : ["insufficient inputs"]) : [],
+      inputs,
+    });
+  }
 
   return {
-    metrics: [
-      { key: "total_project_cost", label: "Total Project Cost", value: totalCost, unit: "$",
-        formula: "Land + Hard + Soft + Financing + Contingency",
-        inputs: { land, hard, soft, financing: fin, contingency: cont } },
-      { key: "gpr", label: "Gross Potential Rent (Yr 1)", value: gpr, unit: "$",
-        formula: "Σ(component units × rent × periods)",
-        inputs: { resUnits, resRent, retailSf, retailRent, officeSf, officeRent } },
-      { key: "noi", label: "Stabilized NOI", value: noi, unit: "$",
-        formula: "GPR × Occupancy × (1 − OpEx ratio)",
-        inputs: { gpr, occupancy: occ, opexRatio } },
-      { key: "exit_value", label: "Exit Value", value: exitValue, unit: "$",
-        formula: "NOI ÷ Exit Cap Rate", inputs: { noi, exitCap } },
-      { key: "ltc", label: "Loan-to-Cost", value: ltc, unit: "%",
-        formula: "Debt ÷ Total Cost", inputs: { debt, totalCost } },
-      { key: "dscr", label: "Stabilized DSCR", value: dscr, unit: "x",
-        formula: "NOI ÷ Annual Debt Service", inputs: { noi, ads, rate, amort } },
-      { key: "yield_on_cost", label: "Yield on Cost", value: yieldOnCost, unit: "%",
-        formula: "NOI ÷ Total Cost", inputs: { noi, totalCost } },
-      { key: "dev_spread", label: "Development Spread", value: devSpread, unit: "bps",
-        formula: "Yield on Cost − Exit Cap", inputs: { yieldOnCost, exitCap } },
-      { key: "equity_required", label: "Equity Required", value: equity, unit: "$",
-        formula: "Total Cost − Debt", inputs: { totalCost, debt } },
-      { key: "equity_multiple", label: "Equity Multiple", value: em, unit: "x",
-        formula: "(Net Sale Proceeds + Σ CF) ÷ Equity",
-        inputs: { netSaleProceedsToEquity, cashflow: (noi - ads) * hold, equity, hold } },
-      { key: "irr", label: "Levered IRR (est.)", value: irr, unit: "%",
-        formula: "EM^(1/Hold) − 1", inputs: { em, hold } },
-      { key: "profit", label: "Profit", value: profit, unit: "$",
-        formula: "Exit Value − Total Cost", inputs: { exitValue, totalCost } },
-      { key: "margin", label: "Profit Margin", value: margin, unit: "%",
-        formula: "Profit ÷ Exit Value", inputs: { profit, exitValue } },
-    ],
-    noi, exitValue, em, irr, dscr,
+    metrics,
+    blockedCount: metrics.filter((x) => x.status === "blocked").length,
+    okCount: metrics.filter((x) => x.status === "ok").length,
   };
 }
 
@@ -507,85 +605,123 @@ async function loadApprovedMap(ctx: any, projectId: string): Promise<{ map: Appr
   return { map, rows: rows ?? [] };
 }
 
+// Gatekeeper — refuses to underwrite when required assumptions are missing
+// or still conflicting.
+async function assertUnderwritingReady(ctx: any, projectId: string) {
+  const { data: all } = await ctx.supabase.from("assumptions")
+    .select("field_key,status").eq("project_id", projectId);
+  const byKey = new Map((all ?? []).map((r: any) => [r.field_key, r]));
+  const missing: string[] = [];
+  const conflicting: string[] = [];
+  const APPROVED = new Set(["approved", "modified"]);
+  for (const key of REQUIRED_KEYS) {
+    const row: any = byKey.get(key);
+    if (!row || !APPROVED.has(row.status)) {
+      if (row?.status === "conflicting") conflicting.push(ASSUMPTION_BY_KEY[key]?.label ?? key);
+      else missing.push(ASSUMPTION_BY_KEY[key]?.label ?? key);
+    }
+  }
+  if (missing.length || conflicting.length) {
+    const err: any = new Error(
+      `UNDERWRITING BLOCKED — Missing: ${missing.join(", ") || "none"}. Conflicting: ${conflicting.join(", ") || "none"}.`
+    );
+    err.blocked = { missing, conflicting };
+    throw err;
+  }
+}
+
 export const recomputeOutputs = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d: { project_id: string }) => z.object({ project_id: z.string().uuid() }).parse(d))
   .handler(async ({ data, context }) => {
+    await assertUnderwritingReady(context, data.project_id);
+
     const { map } = await loadApprovedMap(context, data.project_id);
     const base = buildModel(map);
 
-    // Scenarios
+    const perturb = (overrides: Partial<ApprovedMap>) => {
+      const next: ApprovedMap = { ...map };
+      for (const [k, v] of Object.entries(overrides)) {
+        if (map[k] == null) continue; // only modify approved assumptions
+        next[k] = v as number;
+      }
+      return buildModel(next);
+    };
+    const occApproved = n(map, "stabilized_occupancy");
     const stress = {
-      revenue_down: buildModel({ ...map, residential_rent_monthly: num(map, "residential_rent_monthly") * 0.9,
-        retail_rent_psf: num(map, "retail_rent_psf") * 0.9, office_rent_psf: num(map, "office_rent_psf") * 0.9 }),
-      cost_overrun: buildModel({ ...map, hard_costs: num(map, "hard_costs") * 1.1 }),
-      rate_shock: buildModel({ ...map, interest_rate: num(map, "interest_rate") + 1.5 }),
-      cap_expansion: buildModel({ ...map, exit_cap_rate: num(map, "exit_cap_rate") + 0.75 }),
-      combined: buildModel({
-        ...map,
-        residential_rent_monthly: num(map, "residential_rent_monthly") * 0.92,
-        hard_costs: num(map, "hard_costs") * 1.08,
-        interest_rate: num(map, "interest_rate") + 1.0,
-        exit_cap_rate: num(map, "exit_cap_rate") + 0.5,
+      revenue_down: perturb({
+        residential_rent_monthly: (n(map, "residential_rent_monthly") ?? 0) * 0.9,
+        retail_rent_psf: (n(map, "retail_rent_psf") ?? 0) * 0.9,
+        office_rent_psf: (n(map, "office_rent_psf") ?? 0) * 0.9,
+        stabilized_occupancy: occApproved != null ? Math.max(occApproved - 5, 0) : 0,
       }),
+      cost_overrun: perturb({ hard_costs: (n(map, "hard_costs") ?? 0) * 1.1 }),
+      rate_shock: perturb({ interest_rate: (n(map, "interest_rate") ?? 0) + 1.5 }),
+      cap_expansion: perturb({ exit_cap_rate: (n(map, "exit_cap_rate") ?? 0) + 0.75 }),
     };
 
-    // Clear & write outputs
     await context.supabase.from("financial_outputs").delete().eq("project_id", data.project_id);
     const inserts: any[] = [];
-    const push = (scenario: string, model: ReturnType<typeof buildModel>) => {
+    const push = (scenario: string, model: ReturnType<typeof buildModel>, changed: string[] = []) => {
       for (const m of model.metrics) {
         inserts.push({
           project_id: data.project_id, owner_id: context.userId, scenario_key: scenario,
-          metric_key: m.key, metric_label: m.label, value_numeric: m.value,
-          unit: m.unit, formula_text: m.formula, inputs: m.inputs,
+          metric_key: m.key, metric_label: m.label,
+          value_numeric: m.value, // null when blocked — never fabricated
+          unit: m.unit, formula_text: m.formula,
+          inputs: { ...m.inputs, _status: m.status, _missing: m.missing_inputs, _changed_assumptions: changed },
         });
       }
     };
     push("base", base);
-    for (const [k, v] of Object.entries(stress)) push(k, v);
+    push("revenue_down", stress.revenue_down, ["residential_rent_monthly","retail_rent_psf","office_rent_psf","stabilized_occupancy"]);
+    push("cost_overrun", stress.cost_overrun, ["hard_costs"]);
+    push("rate_shock", stress.rate_shock, ["interest_rate"]);
+    push("cap_expansion", stress.cap_expansion, ["exit_cap_rate"]);
     await context.supabase.from("financial_outputs").insert(inserts);
 
-    // Impact analysis — bump each numeric assumption by ±10% and rank by exit value change
-    const impactRows: { key: string; impact: number }[] = [];
-    const baseValue = base.exitValue;
-    for (const def of ASSUMPTION_DEFS) {
-      if (!def.numeric) continue;
-      const v = map[def.key];
-      if (typeof v !== "number" || v === 0) continue;
-      const up = buildModel({ ...map, [def.key]: v * 1.1 });
-      const down = buildModel({ ...map, [def.key]: v * 0.9 });
-      const impact = Math.abs(up.exitValue - down.exitValue) / 2;
-      impactRows.push({ key: def.key, impact });
-    }
-    impactRows.sort((a, b) => b.impact - a.impact);
-    let rank = 1;
-    for (const r of impactRows.slice(0, 10)) {
-      await context.supabase.from("assumptions").update({
-        impact_rank: rank, impact_amount: r.impact,
-      }).eq("project_id", data.project_id).eq("field_key", r.key);
-      rank++;
+    // Impact analysis — only on assumptions that actually exist
+    const exitBase = base.metrics.find((x) => x.key === "exit_value")?.value;
+    if (exitBase != null) {
+      const impactRows: { key: string; impact: number }[] = [];
+      for (const def of ASSUMPTION_DEFS) {
+        if (!def.numeric) continue;
+        const v = map[def.key];
+        if (typeof v !== "number" || v === 0) continue;
+        const up = buildModel({ ...map, [def.key]: v * 1.1 }).metrics.find((x) => x.key === "exit_value")?.value;
+        const down = buildModel({ ...map, [def.key]: v * 0.9 }).metrics.find((x) => x.key === "exit_value")?.value;
+        if (up == null || down == null) continue;
+        impactRows.push({ key: def.key, impact: Math.abs(up - down) / 2 });
+      }
+      impactRows.sort((a, b) => b.impact - a.impact);
+      let rank = 1;
+      for (const r of impactRows.slice(0, 10)) {
+        await context.supabase.from("assumptions").update({
+          impact_rank: rank, impact_amount: r.impact,
+        }).eq("project_id", data.project_id).eq("field_key", r.key);
+        rank++;
+      }
     }
 
-    // Risk register refresh
+    // Risk register — only from real approved values
     await context.supabase.from("risk_register").delete().eq("project_id", data.project_id);
     const risks: any[] = [];
     const add = (severity: string, type: string, title: string, description: string) =>
       risks.push({ project_id: data.project_id, owner_id: context.userId, severity, risk_type: type, title, description });
-    if (base.dscr > 0 && base.dscr < 1.20) add("red", "credit", "Weak Stabilized DSCR", `Stabilized DSCR is ${base.dscr.toFixed(2)}x, below typical 1.20x covenant.`);
-    if ((num(map, "opex_ratio") || 0) < 30 && map["opex_ratio"] != null) add("yellow", "operations", "Aggressive OpEx Ratio", `Approved OpEx ratio of ${num(map, "opex_ratio")}% is below institutional norms (32–38%).`);
-    if ((num(map, "exit_cap_rate") || 0) > 0 && num(map, "exit_cap_rate") < 5) add("yellow", "exit", "Aggressive Exit Cap", `Exit cap of ${num(map, "exit_cap_rate")}% assumes meaningful cap compression.`);
-    if ((num(map, "rent_growth") || 0) > 4) add("yellow", "revenue", "Aggressive Rent Growth", `Rent growth assumption of ${num(map, "rent_growth")}% exceeds long-run averages.`);
-    const contingencyPct = num(map, "hard_costs") > 0 ? (num(map, "contingency") / num(map, "hard_costs")) * 100 : 0;
-    if (num(map, "contingency") > 0 && contingencyPct < 5) add("yellow", "costs", "Low Contingency", `Contingency is ${contingencyPct.toFixed(1)}% of hard costs (target 5–10%).`);
-    const devSpread = base.metrics.find((m) => m.key === "dev_spread")?.value ?? 0;
-    if (devSpread < 100 && devSpread !== 0) add(devSpread < 50 ? "red" : "yellow", "exit", "Thin Development Spread", `Development spread is ${devSpread.toFixed(0)} bps (target ≥ 100 bps).`);
+    const dscrBase = base.metrics.find((x) => x.key === "dscr")?.value;
+    if (dscrBase != null && dscrBase < 1.20) add("red", "credit", "Weak Stabilized DSCR", `Stabilized DSCR is ${dscrBase.toFixed(2)}x, below typical 1.20x covenant.`);
+    const opexApproved = n(map, "opex_ratio");
+    if (opexApproved != null && opexApproved < 30) add("yellow", "operations", "Aggressive OpEx Ratio", `Approved OpEx ratio of ${opexApproved}% is below institutional norms (32–38%).`);
+    const exitApproved = n(map, "exit_cap_rate");
+    if (exitApproved != null && exitApproved < 5) add("yellow", "exit", "Aggressive Exit Cap", `Exit cap of ${exitApproved}% assumes meaningful cap compression.`);
+    const rgApproved = n(map, "rent_growth");
+    if (rgApproved != null && rgApproved > 4) add("yellow", "revenue", "Aggressive Rent Growth", `Rent growth assumption of ${rgApproved}% exceeds long-run averages.`);
     if (risks.length) await context.supabase.from("risk_register").insert(risks);
 
     await auditLog(context, data.project_id, "project", data.project_id, "recompute_outputs",
-      { scenarios: 1 + Object.keys(stress).length, risks: risks.length });
+      { metrics_ok: base.okCount, metrics_blocked: base.blockedCount, risks: risks.length });
 
-    return { base: base.metrics, stress: Object.fromEntries(Object.entries(stress).map(([k, v]) => [k, v.metrics])), risks: risks.length };
+    return { base: base.metrics, ok: base.okCount, blocked: base.blockedCount, risks: risks.length };
   });
 
 // ---------- Decision log ----------
@@ -609,7 +745,7 @@ export const recordDecision = createServerFn({ method: "POST" })
     return row;
   });
 
-// ---------- Readiness ----------
+// ---------- Readiness + Validation Dashboard ----------
 
 export const getReadiness = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
@@ -617,17 +753,60 @@ export const getReadiness = createServerFn({ method: "GET" })
   .handler(async ({ data, context }) => {
     const { data: rows } = await context.supabase.from("assumptions")
       .select("field_key,status,confidence_score,confidence_band").eq("project_id", data.project_id);
-    const map = new Map((rows ?? []).map((r) => [r.field_key, r]));
+    const byKey = new Map((rows ?? []).map((r) => [r.field_key, r]));
     const required = ASSUMPTION_DEFS.filter((d) => d.required);
-    const total = ASSUMPTION_DEFS.length;
-    const approved = (rows ?? []).filter((r) => r.status === "approved" || r.status === "modified").length;
-    const missingReq = required.filter((d) => {
-      const r = map.get(d.key);
-      return !r || r.status === "missing" || r.status === "rejected";
-    });
-    const avgConfidence = (rows ?? []).reduce((s, r) => s + (r.confidence_score || 0), 0) / Math.max(rows?.length ?? 1, 1);
-    const completenessPct = Math.round((approved / total) * 100);
-    const requiredPct = Math.round(((required.length - missingReq.length) / required.length) * 100);
-    const score = Math.round(0.6 * requiredPct + 0.3 * completenessPct + 0.1 * avgConfidence);
-    return { score, approved, total, missing_required: missingReq.map((d) => d.label), avg_confidence: Math.round(avgConfidence), completeness_pct: completenessPct, required_pct: requiredPct };
+    const optional = ASSUMPTION_DEFS.filter((d) => !d.required);
+    const isCovered = (r: any) => r && (r.status === "approved" || r.status === "modified");
+    const reqCovered = required.filter((d) => isCovered(byKey.get(d.key))).length;
+    const optCovered = optional.filter((d) => isCovered(byKey.get(d.key))).length;
+    const missingReq = required.filter((d) => !isCovered(byKey.get(d.key)));
+    const conflicts = (rows ?? []).filter((r) => r.status === "conflicting");
+    const reqConflicts = conflicts.filter((c) => required.some((d) => d.key === c.field_key));
+    const consideredConf = (rows ?? []).filter((r) => r.confidence_score && r.confidence_score > 0);
+    const avgConfidence = consideredConf.length
+      ? consideredConf.reduce((s, r) => s + (r.confidence_score || 0), 0) / consideredConf.length
+      : 0;
+    const requiredPct = required.length ? Math.round((reqCovered / required.length) * 100) : 0;
+    const optionalPct = optional.length ? Math.round((optCovered / optional.length) * 100) : 0;
+    return {
+      score: requiredPct,
+      required_pct: requiredPct, optional_pct: optionalPct,
+      required_total: required.length, required_covered: reqCovered,
+      optional_total: optional.length, optional_covered: optCovered,
+      conflict_count: conflicts.length,
+      conflicts: conflicts.map((c) => ({ field_key: c.field_key, label: ASSUMPTION_BY_KEY[c.field_key]?.label ?? c.field_key })),
+      avg_confidence: Math.round(avgConfidence),
+      missing_required: missingReq.map((d) => d.label),
+      can_underwrite: missingReq.length === 0 && reqConflicts.length === 0,
+      // Back-compat keys
+      approved: reqCovered + optCovered,
+      total: ASSUMPTION_DEFS.length,
+      completeness_pct: ASSUMPTION_DEFS.length ? Math.round(((reqCovered + optCovered) / ASSUMPTION_DEFS.length) * 100) : 0,
+    };
+  });
+
+export const getValidationDashboard = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: { project_id: string }) => z.object({ project_id: z.string().uuid() }).parse(d))
+  .handler(async ({ data, context }) => {
+    const [{ data: assumptions }, { data: outputs }] = await Promise.all([
+      context.supabase.from("assumptions").select("field_key,status,confidence_score").eq("project_id", data.project_id),
+      context.supabase.from("financial_outputs").select("metric_key,scenario_key,value_numeric").eq("project_id", data.project_id).eq("scenario_key", "base"),
+    ]);
+    const ass = assumptions ?? [];
+    const extracted = ass.filter((a) => ["approved","modified","extracted","needs_review","pending","conflicting"].includes(a.status as any)).length;
+    const missing = ass.filter((a) => a.status === "missing" || a.status === "rejected").length;
+    const conflicting = ass.filter((a) => a.status === "conflicting").length;
+    const outs = outputs ?? [];
+    const metricsGenerated = outs.filter((o) => o.value_numeric != null).length;
+    const metricsBlocked = outs.filter((o) => o.value_numeric == null).length;
+    return {
+      assumptions_extracted: extracted,
+      assumptions_missing: missing,
+      assumptions_conflicting: conflicting,
+      formulas_executed: metricsGenerated,
+      formulas_blocked: metricsBlocked,
+      metrics_generated: metricsGenerated,
+      metrics_blocked: metricsBlocked,
+    };
   });
