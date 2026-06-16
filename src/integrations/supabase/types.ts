@@ -49,6 +49,84 @@ export type Database = {
           },
         ]
       }
+      assumption_candidates: {
+        Row: {
+          canonical_key: string | null
+          classification_status: string
+          confidence: number
+          created_at: string
+          document_id: string | null
+          document_name: string | null
+          id: string
+          kind: string
+          label_hint: string | null
+          owner_id: string
+          page_number: number | null
+          project_id: string
+          source_context: string | null
+          source_text: string | null
+          source_type: string | null
+          unit: string | null
+          value_numeric: number | null
+          value_text: string | null
+        }
+        Insert: {
+          canonical_key?: string | null
+          classification_status?: string
+          confidence?: number
+          created_at?: string
+          document_id?: string | null
+          document_name?: string | null
+          id?: string
+          kind: string
+          label_hint?: string | null
+          owner_id: string
+          page_number?: number | null
+          project_id: string
+          source_context?: string | null
+          source_text?: string | null
+          source_type?: string | null
+          unit?: string | null
+          value_numeric?: number | null
+          value_text?: string | null
+        }
+        Update: {
+          canonical_key?: string | null
+          classification_status?: string
+          confidence?: number
+          created_at?: string
+          document_id?: string | null
+          document_name?: string | null
+          id?: string
+          kind?: string
+          label_hint?: string | null
+          owner_id?: string
+          page_number?: number | null
+          project_id?: string
+          source_context?: string | null
+          source_text?: string | null
+          source_type?: string | null
+          unit?: string | null
+          value_numeric?: number | null
+          value_text?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "assumption_candidates_document_id_fkey"
+            columns: ["document_id"]
+            isOneToOne: false
+            referencedRelation: "documents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "assumption_candidates_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       assumption_comments: {
         Row: {
           assumption_id: string
@@ -83,6 +161,68 @@ export type Database = {
             columns: ["assumption_id"]
             isOneToOne: false
             referencedRelation: "assumptions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      assumption_conflicts: {
+        Row: {
+          candidate_ids: string[]
+          canonical_key: string
+          created_at: string
+          field_label: string
+          id: string
+          owner_id: string
+          project_id: string
+          resolution_candidate_id: string | null
+          resolution_note: string | null
+          resolution_value_numeric: number | null
+          resolution_value_text: string | null
+          resolved_at: string | null
+          resolved_by: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          candidate_ids?: string[]
+          canonical_key: string
+          created_at?: string
+          field_label: string
+          id?: string
+          owner_id: string
+          project_id: string
+          resolution_candidate_id?: string | null
+          resolution_note?: string | null
+          resolution_value_numeric?: number | null
+          resolution_value_text?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          candidate_ids?: string[]
+          canonical_key?: string
+          created_at?: string
+          field_label?: string
+          id?: string
+          owner_id?: string
+          project_id?: string
+          resolution_candidate_id?: string | null
+          resolution_note?: string | null
+          resolution_value_numeric?: number | null
+          resolution_value_text?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "assumption_conflicts_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
             referencedColumns: ["id"]
           },
         ]
@@ -208,14 +348,17 @@ export type Database = {
           impact_rank: number | null
           owner_id: string
           project_id: string
+          reviewer_id: string | null
           source_document_id: string | null
           source_location: string | null
+          source_page_number: number | null
           source_text: string | null
           status: Database["public"]["Enums"]["assumption_status"]
           unit: string | null
           updated_at: string
           value_numeric: number | null
           value_text: string | null
+          version: number
         }
         Insert: {
           ai_reasoning?: string | null
@@ -233,14 +376,17 @@ export type Database = {
           impact_rank?: number | null
           owner_id: string
           project_id: string
+          reviewer_id?: string | null
           source_document_id?: string | null
           source_location?: string | null
+          source_page_number?: number | null
           source_text?: string | null
           status?: Database["public"]["Enums"]["assumption_status"]
           unit?: string | null
           updated_at?: string
           value_numeric?: number | null
           value_text?: string | null
+          version?: number
         }
         Update: {
           ai_reasoning?: string | null
@@ -258,14 +404,17 @@ export type Database = {
           impact_rank?: number | null
           owner_id?: string
           project_id?: string
+          reviewer_id?: string | null
           source_document_id?: string | null
           source_location?: string | null
+          source_page_number?: number | null
           source_text?: string | null
           status?: Database["public"]["Enums"]["assumption_status"]
           unit?: string | null
           updated_at?: string
           value_numeric?: number | null
           value_text?: string | null
+          version?: number
         }
         Relationships: [
           {
