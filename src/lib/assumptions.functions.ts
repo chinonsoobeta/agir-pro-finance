@@ -183,7 +183,9 @@ export const extractAssumptions = createServerFn({ method: "POST" })
 
     // ===== Engine 1 — Document Intelligence =====
     const { parseDocument } = await import("./document-text.server");
-    const { extractCandidatesFromDoc, type Candidate } = await import("./assumption-candidates.server");
+    const candidatesMod = await import("./assumption-candidates.server");
+    const { extractCandidatesFromDoc } = candidatesMod;
+    type Candidate = ReturnType<typeof extractCandidatesFromDoc>[number];
     const docById = new Map(docs.map((d) => [d.id, d]));
     const allCandidates: Candidate[] = [];
     for (const d of docs) {
