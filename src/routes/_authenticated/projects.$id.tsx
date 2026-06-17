@@ -8,7 +8,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { ArrowLeft, FileText } from "lucide-react";
-import { computeMetrics, fmtCompact, fmtPct } from "@/lib/finance";
+import { fmtCompact, fmtPct } from "@/lib/finance";
 import { useState } from "react";
 import { AssumptionReviewCenter } from "@/components/assumption-review";
 import { UnderwritingPanel, ICPanel, AuditPanel } from "@/components/underwriting-panel";
