@@ -1,123 +1,102 @@
-# Rebuild Plan — Phase 1: Data Foundations
+# Phase 2 — Deterministic Finance Engine
 
-You approved phased delivery, a clean data wipe, real OCR/DOCX/email support, and deterministic-only decisions. This plan covers **Phase 1 only**. Phases 2 and 3 are listed at the bottom so you know what's next, but I will not start them until you approve Phase 1.
+Phase 1 (data spine) is live. Phase 2 replaces the current `computeMetrics` shortcut with a traceable, deterministic finance engine that reads only from approved assumptions and writes a full audit row for every metric.
 
-## Phase 1 Scope
+## Goals
 
-Build the data spine that every later engine reads from. After Phase 1, the app will extract, classify, reconcile, and validate — but underwriting, scenarios, and the decision engine will still be running on the current implementation until Phase 2.
+1. No metric is ever computed from raw project columns or fallback constants.
+2. Every metric persists its formula, every input value, and the source assumption (with document + page) for each input.
+3. The UI can drill from any number → formula → inputs → source document.
+4. If any required input for a metric is missing or conflicting, the metric is **not** produced — the audit row records `status: blocked` with the missing keys.
 
-### 1. Canonical Assumption Dictionary
+## 1. Formula Registry — `src/lib/finance-formulas.ts`
 
-Rewrite `src/lib/assumption-taxonomy.ts` to match your 8 categories:
-
-```text
-ACQUISITION    land_cost, acquisition_costs, closing_costs, due_diligence_costs
-CONSTRUCTION   hard_costs, soft_costs, financing_costs, contingency,
-               construction_duration, construction_start, construction_completion
-FINANCING      debt_amount, preferred_equity, common_equity, interest_rate,
-               loan_term, amortization, ltc, ltv, dscr_requirement
-REVENUE        unit_count, unit_mix, average_rent, occupancy, rent_growth,
-               lease_up_period
-OPERATING      expense_ratio, property_taxes, insurance, utilities,
-               maintenance, management_fee, replacement_reserve
-EXIT           exit_cap_rate, hold_period, disposition_costs, terminal_value
-MARKET         vacancy_rate, population_growth, employment_growth, market_rent_growth
-RISK           environmental_reserve, delay_contingency, tax_reassessment, capex_reserve
-```
-
-Each definition carries `unit`, `numeric`, `required`, and a rich `aliases` list for Stage-3 mapping. Required set matches your spec exactly (land_cost, hard_costs, soft_costs, debt_amount, equity_amount, interest_rate, occupancy, expense_ratio, exit_cap_rate, hold_period).
-
-### 2. Document Intelligence (Engine 1)
-
-`src/lib/document-text.server.ts` gains:
-
-- **PDF**: keep `unpdf`, but also emit per-page text so candidates can store `page_number`.
-- **XLSX/CSV**: per-sheet parsing (existing) + CSV via `papaparse`.
-- **DOCX**: add `mammoth` (`bun add mammoth`).
-- **EML**: add `mailparser` (`bun add mailparser`) — extract subject, from, body, and recurse into attachments.
-- **Images / scanned PDF**: add `tesseract.js` (`bun add tesseract.js`) for OCR. PDFs detected as image-only (no extractable text) get OCR per page.
-
-Returns a structured `ParsedDoc { pages: { page_number, text }[], tables: [], source_type }`.
-
-### 3. Candidate Extraction (Engine 2)
-
-Refactor `assumption-candidates.server.ts` so every candidate carries:
+A pure, typed registry. Each entry:
 
 ```ts
 {
-  candidate_id, kind, value_numeric, value_text, unit,
-  source_text,        // the exact matched substring
-  source_context,     // ±160 chars
-  document_id, page_number, source_type,
-  label_hint, confidence, extracted_at
+  metric_key: 'total_cost' | 'equity_requirement' | 'ltc' | 'ltv' | 'noi' |
+              'annual_debt_service' | 'dscr' | 'profit' | 'profit_margin' |
+              'yield_on_cost' | 'going_in_cap' | 'exit_value' | 'irr' | 'coc',
+  label: string,
+  unit: 'currency' | 'percent' | 'ratio' | 'multiple',
+  inputs: CanonicalKey[],            // required assumption keys
+  formula_text: string,              // human-readable formula
+  compute: (inputs) => number        // pure fn, throws if any input missing
 }
 ```
 
-No classification yet — just typed primitives.
+Initial registry covers: `total_cost`, `equity_requirement`, `ltc`, `ltv`, `annual_debt_service`, `noi`, `dscr`, `profit`, `profit_margin`, `yield_on_cost`, `exit_value`, `going_in_cap`. IRR and CoC are stubbed as `blocked` until a cashflow series exists (Phase 3).
 
-### 4. Schema Migration (clean wipe)
+## 2. Engine — `src/lib/finance-engine.server.ts`
 
-One migration:
+`runFinanceEngine(projectId)`:
 
-- `TRUNCATE assumptions, assumption_history, assumption_versions, assumption_comments, financial_outputs, decision_logs, scenarios, risk_register, audit_logs RESTART IDENTITY CASCADE;`
-- New table `assumption_candidates` (candidate_id PK, project_id, document_id, page_number, kind, value_numeric, value_text, unit, source_text, source_context, label_hint, confidence, canonical_key nullable, classification_status, created_at). GRANTs + RLS scoped to project owner.
-- New table `assumption_conflicts` (id, project_id, canonical_key, status `open|resolved|dismissed`, resolution_value, resolution_source, resolved_by, resolved_at, created_at). GRANTs + RLS.
-- `assumptions` gains columns: `source_document_id`, `source_page_number`, `source_text`, `confidence`, `version`, `reviewer_id`, plus `status` enum widened to include `extracted | classified | conflicting | approved | rejected | missing`.
+1. Load approved assumptions + open conflicts for the project.
+2. Build a `Map<canonical_key, { value, assumption_id, source_document_id, source_page_number, confidence }>` from approved rows only. Conflicting/missing keys are excluded.
+3. For each formula in the registry:
+   - If any `inputs[]` key is missing from the map → write `financial_outputs` row with `status: 'blocked'`, `blocked_reason: 'missing_inputs'`, `missing_inputs: [...]`, `value: null`.
+   - Otherwise compute, write `financial_outputs` row with `status: 'computed'`, `value`, `formula_text`, `inputs_used` (jsonb array of `{ key, value, assumption_id, source_document_id, source_page_number }`).
+4. Replace prior outputs for the project in a single transaction (delete + insert).
+5. Return `{ computed: n, blocked: n, total: n }`.
 
-### 5. Reconciliation Engine (Engine 4)
+No fallback path. No `computeMetrics`. No "estimated" anything.
 
-`src/lib/reconciliation.server.ts`:
+## 3. Schema Migration
 
-- Group classified candidates by `canonical_key`.
-- If multiple distinct numeric values exist for one key, create an `assumption_conflicts` row with every contributing source listed; mark assumption as `conflicting`.
-- Never auto-resolve. Underwriting is blocked while any required-key conflict is `open`.
+Extend `financial_outputs` (already exists, 11 columns):
 
-### 6. Validation Engine (Engine 5)
+- add `metric_key text not null`
+- add `formula_text text`
+- add `inputs_used jsonb not null default '[]'`
+- add `status text not null default 'computed'` — `computed | blocked`
+- add `blocked_reason text`
+- add `missing_inputs text[]`
+- add `unit text`
+- unique `(project_id, metric_key, version)` (version stays for history)
 
-`src/lib/validation.ts` exposes `getValidationReport(projectId)`:
+Truncate the table first (Phase 1 already wiped, but the new columns require it).
 
-```ts
-{
-  required: { key, status, source_document_id?, page_number? }[],
-  optional: [...],
-  coverage_pct,           // approved required / total required
-  missing_required: string[],
-  conflicts_open: number,
-  confidence_score,       // mean of approved required confidences
-  ready_for_underwriting: boolean
-}
-```
+## 4. Server Functions — `src/lib/assumptions.functions.ts`
 
-### 7. Reconciliation + Validation UI
+- `recomputeFinancials({ project_id })` — gated by `getValidationReport().ready_for_underwriting`. If not ready, returns `{ ok: false, reason, report }` without running the engine.
+- `listFinancialOutputs({ project_id })` — returns rows including `inputs_used`, `formula_text`, `status`.
 
-Update `src/components/assumption-review.tsx`:
+Remove the existing path that wrote synthesized outputs from `computeMetrics`.
 
-- New "Conflicts" section listing every open conflict with all candidate values, source doc + page, and an explicit "Use this value" action per candidate (writes resolution to `assumption_conflicts` + promotes the chosen candidate to the canonical assumption).
-- Existing review center shows status badges: `extracted`, `classified`, `conflicting`, `approved`, `missing`.
-- Per-assumption "Source" link — opens document at the cited page.
+## 5. UI — `src/components/underwriting-panel.tsx`
 
-## What Phase 1 explicitly does NOT do
+Rewrite the panel around the registry:
 
-These come next, in order, after you approve Phase 1:
+- **Top bar**: validation summary (coverage %, conflicts open, ready/blocked) + "Run finance engine" button (disabled when not ready).
+- **Metrics grid**: one card per `metric_key`. Computed cards show the value + a "Show calculation" expander listing `formula_text`, each input (`label = value [from document, page N]`), and confidence.
+- **Blocked cards**: shown explicitly with red badge and `missing_inputs` listed by canonical label. Never shown as zero or "—".
+- **No more `computeMetrics` in this panel.**
 
-- **Phase 2** — Deterministic Finance Engine rewrite (formula registry with per-metric inputs/outputs/audit rows in `financial_outputs`), per-metric "Show calculation" with source-document drill-through, removal of every remaining placeholder path.
-- **Phase 3** — Scenario engine (Revenue Downside, Occupancy Shock, Cost Overrun, Rate Shock, Cap Expansion, Combined Stress), Assumption Impact ranking, deterministic Decision Engine (Approve / Approve w/ Conditions / Reject driven by coverage %, conflicts, DSCR, profit margin, stress outcomes), and the four Debug Consoles (Extraction, Mapping, Validation, Financial Engine).
+`src/routes/_authenticated/projects.$id.tsx` overview tab keeps the metric tiles, but they now read from `financial_outputs` rows (status-aware) instead of `computeMetrics(project)`. A blocked metric renders as "Blocked — missing X" rather than `$0`.
 
-## Technical Notes
+## 6. Removal of placeholder finance
 
-- Wipe is destructive. After Phase 1 migration runs, all current assumptions/outputs/decisions are gone — confirmed by your "Wipe and start clean" choice.
-- New deps: `mammoth`, `mailparser`, `tesseract.js`, `papaparse`. `tesseract.js` ships WASM that works in the Cloudflare Worker runtime; OCR will be slower than text PDFs (~3–6s/page).
-- All extraction work stays inside `createServerFn` handlers; no Edge Functions added.
-- Storage bucket `documents` already exists; no bucket changes.
+- Delete `src/lib/finance.ts` `computeMetrics` callers in production paths. Keep the file only if scenario/preview code still imports it; otherwise remove.
+- `src/components/underwriting-panel.tsx`, `src/routes/_authenticated/projects.$id.tsx`, `src/routes/_authenticated/dashboard.tsx`, `src/routes/_authenticated/scenarios.tsx` — audit each call to `computeMetrics` and replace with engine outputs or hide the surface when not ready.
 
-## Deliverable for Phase 1
+## 7. Audit surface
 
-After approval and migration, you will have:
+`AuditPanel` (already exists) gains a "Finance Engine Run" section listing the last run's `computed` / `blocked` rows with formula + inputs. This is the read-only audit view of `financial_outputs`.
 
-1. A canonical dictionary covering all 8 categories.
-2. Document parsing that handles PDF (text + OCR fallback), DOCX, XLSX, CSV, images, and `.eml`.
-3. Candidate rows in the DB with full provenance (`document_id`, `page_number`, `source_text`).
-4. Conflict rows surfaced in the UI; underwriting blocked while conflicts are open.
-5. A validation report endpoint and UI showing coverage %, missing required, open conflicts, confidence score.
+## Out of scope (Phase 3)
 
-Approve to proceed with Phase 1, or tell me what to change.
+- Scenario engine (downside / shock / stress).
+- Assumption impact ranking.
+- Decision engine (Approve / Conditions / Reject).
+- Debug consoles (extraction / mapping / validation / engine).
+
+## Migration order
+
+1. Run schema migration (truncate + new columns).
+2. Add `finance-formulas.ts` + `finance-engine.server.ts`.
+3. Rewrite `recomputeFinancials` server fn.
+4. Rewrite `underwriting-panel.tsx`; update overview/dashboard/scenarios to be status-aware.
+5. Smoke test: upload a doc, approve assumptions, run engine, verify a blocked metric stays blocked and a computed metric shows its full citation chain.
+
+Approve to start.
