@@ -15,7 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { Plus, Trash2, Sparkles } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
-import { computeMetrics, fmtCompact, fmtPct } from "@/lib/finance";
+import { fmtCompact } from "@/lib/finance";
 
 const projectsQ = queryOptions({ queryKey: ["projects"], queryFn: () => listProjects() });
 
@@ -85,15 +85,14 @@ function ProjectsPage() {
                 <th className="text-left">Project</th>
                 <th className="text-left">Status</th>
                 <th className="text-left">Type</th>
-                <th className="text-right">Total Cost</th>
-                <th className="text-right">Revenue</th>
-                <th className="text-right">Margin</th>
-                <th className="text-right">IRR</th>
+                <th className="text-right">Acq. Cost</th>
+                <th className="text-right">Construction</th>
+                <th className="text-right">Debt</th>
+                <th className="text-right">Equity</th>
                 <th></th>
               </tr></thead>
               <tbody>
                 {projects.map((p) => {
-                  const m = computeMetrics(p);
                   return (
                     <tr key={p.id} className="hover:bg-accent/30 transition-colors">
                       <td>
@@ -102,10 +101,10 @@ function ProjectsPage() {
                       </td>
                       <td><Badge variant="outline" className={`${STATUS_VARIANT[p.status]} capitalize text-[10px]`}>{p.status}</Badge></td>
                       <td className="capitalize text-muted-foreground">{p.type.replace("_"," ")}</td>
-                      <td className="text-right num">{fmtCompact(m.totalCost)}</td>
-                      <td className="text-right num">{fmtCompact(m.projectedRevenue)}</td>
-                      <td className={`text-right num ${m.profitMargin >= 0 ? "text-success" : "text-destructive"}`}>{fmtPct(m.profitMargin)}</td>
-                      <td className="text-right num text-primary">{fmtPct(m.irr)}</td>
+                      <td className="text-right num">{fmtCompact(Number(p.acquisition_cost || 0))}</td>
+                      <td className="text-right num">{fmtCompact(Number(p.construction_cost || 0))}</td>
+                      <td className="text-right num">{fmtCompact(Number(p.debt_amount || 0))}</td>
+                      <td className="text-right num">{fmtCompact(Number(p.equity_amount || 0))}</td>
                       <td className="text-right">
                         <Button variant="ghost" size="icon" className="size-7" onClick={() => { if (confirm(`Delete ${p.name}?`)) del.mutate(p.id); }}>
                           <Trash2 className="size-3.5" />

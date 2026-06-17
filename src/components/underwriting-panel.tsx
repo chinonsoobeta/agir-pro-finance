@@ -258,6 +258,7 @@ function MetricCard({
   const blocked = !row || row.value_numeric == null;
   const inputs = (row?.inputs ?? {}) as Record<string, any>;
   const missing: string[] = Array.isArray(inputs._missing) ? inputs._missing : [];
+  const citations: Record<string, any> = (inputs._citations ?? {}) as Record<string, any>;
   const inputKeys = Object.keys(inputs).filter((k) => !k.startsWith("_"));
 
   return (
@@ -285,13 +286,24 @@ function MetricCard({
           {inputKeys.length > 0 && (
             <div>
               <div className="font-semibold uppercase tracking-widest text-muted-foreground text-[10px] mb-1">Source assumptions</div>
-              <ul className="space-y-0.5 font-mono">
-                {inputKeys.map((k) => (
-                  <li key={k} className="flex justify-between gap-4">
-                    <span>{assumptionLabel(k)}</span>
-                    <span className={inputs[k] == null ? "text-destructive" : ""}>{fmtInput(inputs[k])}</span>
-                  </li>
-                ))}
+              <ul className="space-y-1 font-mono">
+                {inputKeys.map((k) => {
+                  const c = citations[k];
+                  return (
+                    <li key={k} className="flex justify-between gap-4 border-b border-border/40 pb-1">
+                      <span className="flex flex-col">
+                        <span>{assumptionLabel(k)}</span>
+                        {c?.source_document_name && (
+                          <span className="text-[10px] text-muted-foreground font-sans">
+                            from {c.source_document_name}{c.source_page_number ? ` · p${c.source_page_number}` : ""}
+                            {c.confidence != null ? ` · ${c.confidence}% conf` : ""}
+                          </span>
+                        )}
+                      </span>
+                      <span className={inputs[k] == null ? "text-destructive" : ""}>{fmtInput(inputs[k])}</span>
+                    </li>
+                  );
+                })}
               </ul>
             </div>
           )}

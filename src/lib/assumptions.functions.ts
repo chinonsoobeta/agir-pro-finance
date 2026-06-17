@@ -708,10 +708,26 @@ function buildModel(m: ApprovedMap) {
 
 async function loadApprovedMap(ctx: any, projectId: string) {
   const { data: rows } = await ctx.supabase.from("assumptions")
-    .select("*").eq("project_id", projectId).in("status", ["approved", "modified"]);
+    .select("*, documents:source_document_id(id,name)")
+    .eq("project_id", projectId).in("status", ["approved", "modified"]);
   const map: ApprovedMap = {};
-  for (const r of rows ?? []) map[r.field_key] = r.value_numeric == null ? null : Number(r.value_numeric);
-  return { map, rows: rows ?? [] };
+  const citations: Record<string, {
+    assumption_id: string; value: number | null;
+    source_document_id: string | null; source_document_name: string | null;
+    source_page_number: number | null; confidence: number | null;
+  }> = {};
+  for (const r of rows ?? []) {
+    map[r.field_key] = r.value_numeric == null ? null : Number(r.value_numeric);
+    citations[r.field_key] = {
+      assumption_id: r.id,
+      value: r.value_numeric == null ? null : Number(r.value_numeric),
+      source_document_id: r.source_document_id ?? null,
+      source_document_name: (r as any).documents?.name ?? r.source_location ?? null,
+      source_page_number: r.source_page_number ?? null,
+      confidence: r.confidence_score ?? null,
+    };
+  }
+  return { map, citations, rows: rows ?? [] };
 }
 
 async function assertUnderwritingReady(ctx: any, projectId: string) {
@@ -748,16 +764,24 @@ export const recomputeOutputs = createServerFn({ method: "POST" })
   .inputValidator((d: { project_id: string }) => z.object({ project_id: z.string().uuid() }).parse(d))
   .handler(async ({ data, context }) => {
     await assertUnderwritingReady(context, data.project_id);
-    const { map } = await loadApprovedMap(context, data.project_id);
+    const { map, citations } = await loadApprovedMap(context, data.project_id);
     const base = buildModel(map);
     await context.supabase.from("financial_outputs").delete().eq("project_id", data.project_id);
     const inserts: any[] = [];
     for (const m of base.metrics) {
+      const metricCitations: Record<string, any> = {};
+      for (const k of Object.keys(m.inputs)) {
+        if (citations[k]) metricCitations[k] = citations[k];
+      }
       inserts.push({
         project_id: data.project_id, owner_id: context.userId, scenario_key: "base",
         metric_key: m.key, metric_label: m.label,
         value_numeric: m.value, unit: m.unit, formula_text: m.formula,
-        inputs: { ...m.inputs, _status: m.status, _missing: m.missing_inputs },
+        inputs: {
+          ...m.inputs,
+          _status: m.status, _missing: m.missing_inputs,
+          _citations: metricCitations,
+        },
       });
     }
     if (inserts.length) await context.supabase.from("financial_outputs").insert(inserts);

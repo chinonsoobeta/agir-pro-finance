@@ -8,7 +8,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { ArrowLeft, FileText } from "lucide-react";
-import { computeMetrics, fmtCompact, fmtPct } from "@/lib/finance";
+import { fmtCompact, fmtPct } from "@/lib/finance";
 import { useState } from "react";
 import { AssumptionReviewCenter } from "@/components/assumption-review";
 import { UnderwritingPanel, ICPanel, AuditPanel } from "@/components/underwriting-panel";
@@ -41,8 +41,27 @@ function ProjectDetail() {
   const { data: documents = [] } = useSuspenseQuery(docsQ(id));
   const { data: assumptions = [] } = useSuspenseQuery(assumptionsQ(id));
   const { data: outputs = [] } = useSuspenseQuery(outputsQ(id));
-  const m = computeMetrics(project);
   const underwritingStatus = outputs.length > 0 ? "Generated" : "Not started";
+  const metricByKey = (k: string) => outputs.find((o: any) => o.metric_key === k && o.scenario_key === "base");
+  const fmtMetric = (k: string, unit: string) => {
+    const r: any = metricByKey(k);
+    if (!r || r.value_numeric == null) return { value: "Blocked", blocked: true };
+    const n = Number(r.value_numeric);
+    if (unit === "$") return { value: fmtCompact(n), blocked: false };
+    if (unit === "%") return { value: fmtPct(n), blocked: false };
+    if (unit === "x") return { value: n.toFixed(2) + "x", blocked: false };
+    return { value: String(n), blocked: false };
+  };
+  const tiles: Array<{ label: string; key: string; unit: string; accent?: "primary" | "success" | "destructive" }> = [
+    { label: "Total Project Cost", key: "total_project_cost", unit: "$" },
+    { label: "Stabilized NOI", key: "noi", unit: "$" },
+    { label: "Exit Value", key: "exit_value", unit: "$", accent: "primary" },
+    { label: "Profit", key: "profit", unit: "$" },
+    { label: "Margin", key: "margin", unit: "%", accent: "primary" },
+    { label: "Equity Required", key: "equity_required", unit: "$" },
+    { label: "LTC", key: "ltc", unit: "%" },
+    { label: "DSCR", key: "dscr", unit: "x" },
+  ];
 
   return (
     <>
@@ -69,15 +88,16 @@ function ProjectDetail() {
           </TabsList>
 
           <TabsContent value="overview" className="mt-4 space-y-4">
+            {outputs.length === 0 && (
+              <Card className="p-4 border-dashed text-sm text-muted-foreground">
+                No financial outputs yet. Approve required assumptions and run underwriting — Agir never displays fabricated values.
+              </Card>
+            )}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <Metric label="Total Cost" value={fmtCompact(m.totalCost)} />
-              <Metric label="Revenue" value={fmtCompact(m.projectedRevenue)} />
-              <Metric label="Profit" value={fmtCompact(m.projectedProfit)} accent={m.projectedProfit >= 0 ? "success" : "destructive"} />
-              <Metric label="Margin" value={fmtPct(m.profitMargin)} accent="primary" />
-              <Metric label="Equity Req." value={fmtCompact(m.equityRequirement)} />
-              <Metric label="LTC" value={fmtPct(m.ltc)} />
-              <Metric label="DSCR" value={m.dscr.toFixed(2) + "x"} />
-              <Metric label="IRR Est." value={fmtPct(m.irr)} accent="primary" />
+              {tiles.map((t) => {
+                const f = fmtMetric(t.key, t.unit);
+                return <Metric key={t.key} label={t.label} value={f.value} accent={f.blocked ? "destructive" : t.accent} />;
+              })}
             </div>
             <Card className="p-5">
               <SectionLabel>Notes</SectionLabel>

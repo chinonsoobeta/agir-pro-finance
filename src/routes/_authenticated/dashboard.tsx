@@ -4,7 +4,7 @@ import { listProjects, listActivities } from "@/lib/projects.functions";
 import { PageHeader } from "@/components/app-shell";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { computeMetrics, fmtCompact, fmtPct } from "@/lib/finance";
+import { fmtCompact } from "@/lib/finance";
 import { Plus, FileText, GitBranchPlus, Upload, TrendingUp, Building2, CheckCircle2, DollarSign } from "lucide-react";
 import { Bar, BarChart, ResponsiveContainer, XAxis, YAxis, Tooltip, PieChart, Pie, Cell, CartesianGrid } from "recharts";
 
@@ -36,8 +36,9 @@ function Dashboard() {
   const totalValue = projects.reduce((a, p) => a + Number(p.revenue_forecast || 0), 0);
   const totalBudget = projects.reduce((a, p) => a + Number(p.acquisition_cost || 0) + Number(p.construction_cost || 0), 0);
   const totalRevenue = projects.reduce((a, p) => a + Number(p.revenue_forecast || 0), 0);
-  const irrs = projects.map((p) => computeMetrics(p).irr).filter((v) => isFinite(v));
-  const avgIRR = irrs.length ? irrs.reduce((a, b) => a + b, 0) / irrs.length : 0;
+  // IRR is never displayed from raw project columns — it requires the
+  // deterministic finance engine. Shown as "—" until per-project underwriting runs.
+
 
   const statusBreakdown = ["pipeline","underwriting","approved","active","completed","cancelled"].map((s) => ({
     name: s, value: projects.filter((p) => p.status === s).length,
@@ -58,7 +59,7 @@ function Dashboard() {
           <Kpi label="Total Projects" value={total.toString()} icon={Building2} />
           <Kpi label="Active" value={active.toString()} icon={TrendingUp} accent="success" />
           <Kpi label="Completed" value={completed.toString()} icon={CheckCircle2} />
-          <Kpi label="Avg IRR" value={fmtPct(avgIRR)} icon={TrendingUp} accent="primary" />
+          <Kpi label="Avg IRR" value="—" icon={TrendingUp} />
           <Kpi label="Total Project Value" value={fmtCompact(totalValue)} icon={DollarSign} />
           <Kpi label="Total Budget" value={fmtCompact(totalBudget)} icon={DollarSign} />
           <Kpi label="Forecast Revenue" value={fmtCompact(totalRevenue)} icon={DollarSign} accent="primary" />
